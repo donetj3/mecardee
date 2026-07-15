@@ -1,0 +1,17 @@
+﻿{
+  "name": "Mecardee Car Wash Launch Tracker",
+  "short_name": "Mecardee",
+  "description": "Construction and opening progress tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#071a17",
+  "theme_color": "#071a17",
+  "icons": [
+    {
+      "src": "/mecardee-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
