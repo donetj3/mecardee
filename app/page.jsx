@@ -1571,6 +1571,8 @@ export default function Home() {
                 <button className="primary-button" type="submit" disabled={accountBusy}>
                   {accountBusy ? "Savingâ€¦" : "Change password"}
                 </button>
+
+              <button data-settings-logout-option="true" className="secondary-button logout-button" onClick={logout}>Log out</button>
               </form>
             </section>
 
