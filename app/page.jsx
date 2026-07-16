@@ -16,8 +16,8 @@ const PHASES = [
 ];
 
 const pad = (value) => String(value).padStart(2, "0");
-const LOGIN_USERNAME = "delvin";
-const LOGIN_PASSWORD = "admin@2";
+// MECARDEE_SIMPLE_USERS_V1
+const USER_SESSION_KEY = "mecardee-user-session";
 const EMPTY_PHASE_BUDGETS = Object.fromEntries(PHASES.map((phase) => [phase.id, 0]));
 // MECARDEE_BUDGET_LOGIN_PATCH
 
@@ -252,12 +252,16 @@ function Modal({ title, children, onClose }) {
 
 export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountMessage, setAccountMessage] = useState("");
   const [data, setData] = useState(null);
   const [activePhase, setActivePhase] = useState("all");
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [activeSummary, setActiveSummary] = useState(null);
   const [taskDrafts, setTaskDrafts] = useState({});
@@ -276,8 +280,46 @@ export default function Home() {
   });
 
   useEffect(() => {
-    setIsLoggedIn(window.sessionStorage.getItem("mecardee-logged-in") === "yes");
-    setAuthChecked(true);
+    let cancelled = false;
+
+    async function restoreUserSession() {
+      try {
+        const rawSession = window.sessionStorage.getItem(USER_SESSION_KEY);
+        if (!rawSession) return;
+
+        const savedSession = JSON.parse(rawSession);
+        if (!savedSession?.token) return;
+
+        const { data: result, error } = await supabase.rpc("mecardee_session_info", {
+          p_session_token: savedSession.token
+        });
+
+        const sessionUser = Array.isArray(result) ? result[0] : result;
+        if (error || !sessionUser) {
+          window.sessionStorage.removeItem(USER_SESSION_KEY);
+          return;
+        }
+
+        if (!cancelled) {
+          const restoredUser = {
+            token: savedSession.token,
+            username: sessionUser.username,
+            isAdmin: Boolean(sessionUser.is_admin)
+          };
+          setCurrentUser(restoredUser);
+          setIsLoggedIn(true);
+        }
+      } catch {
+        window.sessionStorage.removeItem(USER_SESSION_KEY);
+      } finally {
+        if (!cancelled) setAuthChecked(true);
+      }
+    }
+
+    restoreUserSession();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const loadData = useCallback(async ({ quiet = false } = {}) => {
@@ -386,27 +428,120 @@ export default function Home() {
   const activePhaseList = PHASES.filter((phase) => phaseStats[phase.id]?.progress > 0 && phaseStats[phase.id]?.progress < 100);
 
 
-  function handleLogin(event) {
+  async function handleLogin(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const username = String(form.get("username") || "").trim();
+    const username = String(form.get("username") || "").trim().toLowerCase();
     const password = String(form.get("password") || "");
 
-    if (username === LOGIN_USERNAME && password === LOGIN_PASSWORD) {
-      window.sessionStorage.setItem("mecardee-logged-in", "yes");
-      setLoginError("");
-      setIsLoggedIn(true);
+    setAccountBusy(true);
+    setLoginError("");
+
+    const { data: result, error } = await supabase.rpc("mecardee_login", {
+      p_username: username,
+      p_password: password
+    });
+
+    setAccountBusy(false);
+    const session = Array.isArray(result) ? result[0] : result;
+
+    if (error || !session?.session_token) {
+      setLoginError("Incorrect username or password.");
       return;
     }
 
-    setLoginError("Incorrect username or password.");
+    const user = {
+      token: session.session_token,
+      username: session.username,
+      isAdmin: Boolean(session.is_admin)
+    };
+
+    window.sessionStorage.setItem(USER_SESSION_KEY, JSON.stringify(user));
+    setCurrentUser(user);
+    setLoginError("");
+    setIsLoggedIn(true);
   }
 
-  function logout() {
-    window.sessionStorage.removeItem("mecardee-logged-in");
+  async function logout() {
+    const token = currentUser?.token;
+    window.sessionStorage.removeItem(USER_SESSION_KEY);
     setData(null);
     setShowAlerts(false);
+    setShowAccountSettings(false);
+    setCurrentUser(null);
     setIsLoggedIn(false);
+
+    if (token) {
+      await supabase.rpc("mecardee_logout", {
+        p_session_token: token
+      });
+    }
+  }
+
+  async function addNewUser(event) {
+    event.preventDefault();
+    if (!currentUser?.isAdmin) return;
+
+    const form = new FormData(event.currentTarget);
+    const username = String(form.get("newUsername") || "").trim().toLowerCase();
+    const password = String(form.get("newPassword") || "");
+    const confirmPassword = String(form.get("confirmNewPassword") || "");
+
+    if (password !== confirmPassword) {
+      setAccountMessage("New-user passwords do not match.");
+      return;
+    }
+
+    setAccountBusy(true);
+    setAccountMessage("");
+
+    const { data: message, error } = await supabase.rpc("mecardee_add_user", {
+      p_session_token: currentUser.token,
+      p_username: username,
+      p_password: password
+    });
+
+    setAccountBusy(false);
+
+    if (error) {
+      setAccountMessage(error.message || "Could not create the user.");
+      return;
+    }
+
+    event.currentTarget.reset();
+    setAccountMessage(String(message || "User created successfully."));
+  }
+
+  async function changeCurrentPassword(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const currentPassword = String(form.get("currentPassword") || "");
+    const newPassword = String(form.get("changedPassword") || "");
+    const confirmPassword = String(form.get("confirmChangedPassword") || "");
+
+    if (newPassword !== confirmPassword) {
+      setAccountMessage("New passwords do not match.");
+      return;
+    }
+
+    setAccountBusy(true);
+    setAccountMessage("");
+
+    const { data: message, error } = await supabase.rpc("mecardee_change_password", {
+      p_session_token: currentUser.token,
+      p_current_password: currentPassword,
+      p_new_password: newPassword
+    });
+
+    setAccountBusy(false);
+
+    if (error) {
+      setAccountMessage(error.message || "Could not change the password.");
+      return;
+    }
+
+    event.currentTarget.reset();
+    setAccountMessage(String(message || "Password changed successfully."));
   }
 
   function notify(message) {
@@ -950,6 +1085,21 @@ export default function Home() {
           <button className="export-button" onClick={handleExportReport} disabled={isExporting} aria-label="Export report as PDF">
             {isExporting ? "Generating…" : "↓ Export PDF"}
           </button>
+          <button
+            className="settings-button"
+            type="button"
+            onClick={() => {
+              setAccountMessage("");
+              setShowAccountSettings(true);
+            }}
+            aria-label="User settings"
+            title="User settings"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 15.25A3.25 3.25 0 1 0 12 8.75a3.25 3.25 0 0 0 0 6.5Z" />
+              <path d="M19.1 13.2a7.8 7.8 0 0 0 .05-1.2 7.8 7.8 0 0 0-.05-1.2l2-1.55-2-3.46-2.48 1a8.38 8.38 0 0 0-2.07-1.2L14.2 3h-4.4l-.35 2.59c-.74.29-1.43.69-2.07 1.2l-2.48-1-2 3.46 2 1.55a7.8 7.8 0 0 0-.05 1.2c0 .4.02.8.05 1.2l-2 1.55 2 3.46 2.48-1c.64.51 1.33.91 2.07 1.2L9.8 21h4.4l.35-2.59a8.38 8.38 0 0 0 2.07-1.2l2.48 1 2-3.46-2-1.55Z" />
+            </svg>
+          </button>
           <button className="secondary-button logout-button" onClick={logout}>Log out</button>
           <button className="primary-button" onClick={() => setShowTaskModal(true)}>＋ Add task</button>
         </div>
@@ -1381,6 +1531,76 @@ export default function Home() {
               <button className="primary-button" type="submit">Add task</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+
+      {showAccountSettings && (
+        <Modal title="User settings" onClose={() => setShowAccountSettings(false)}>
+          <div className="user-settings-panel">
+            <div className="current-user-card">
+              <div className="user-avatar">{String(currentUser?.username || "U").slice(0, 1).toUpperCase()}</div>
+              <div>
+                <span>Signed in as</span>
+                <strong>{currentUser?.username}</strong>
+                <small>{currentUser?.isAdmin ? "Administrator" : "User"}</small>
+              </div>
+            </div>
+
+            {accountMessage && <div className="account-message">{accountMessage}</div>}
+
+            <section className="account-setting-section">
+              <div className="account-section-heading">
+                <span>01</span>
+                <div>
+                  <h3>Change my password</h3>
+                  <p>Update the password for {currentUser?.username}.</p>
+                </div>
+              </div>
+
+              <form className="account-form" onSubmit={changeCurrentPassword}>
+                <label>Current password
+                  <input name="currentPassword" type="password" autoComplete="current-password" required />
+                </label>
+                <label>New password
+                  <input name="changedPassword" type="password" minLength="4" autoComplete="new-password" required />
+                </label>
+                <label>Confirm new password
+                  <input name="confirmChangedPassword" type="password" minLength="4" autoComplete="new-password" required />
+                </label>
+                <button className="primary-button" type="submit" disabled={accountBusy}>
+                  {accountBusy ? "Savingâ€¦" : "Change password"}
+                </button>
+              </form>
+            </section>
+
+            {currentUser?.isAdmin && (
+              <section className="account-setting-section admin-user-section">
+                <div className="account-section-heading">
+                  <span>02</span>
+                  <div>
+                    <h3>Add a new user</h3>
+                    <p>New users get the same tracker options as Delvin.</p>
+                  </div>
+                </div>
+
+                <form className="account-form" onSubmit={addNewUser}>
+                  <label>Username
+                    <input name="newUsername" minLength="3" pattern="[a-zA-Z0-9._-]+" autoComplete="off" required />
+                  </label>
+                  <label>Password
+                    <input name="newPassword" type="password" minLength="4" autoComplete="new-password" required />
+                  </label>
+                  <label>Confirm password
+                    <input name="confirmNewPassword" type="password" minLength="4" autoComplete="new-password" required />
+                  </label>
+                  <button className="primary-button" type="submit" disabled={accountBusy}>
+                    {accountBusy ? "Creatingâ€¦" : "Add user"}
+                  </button>
+                </form>
+              </section>
+            )}
+          </div>
         </Modal>
       )}
 

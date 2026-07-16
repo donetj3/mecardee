@@ -1265,3 +1265,185 @@ textarea { min-height: 88px; resize: vertical; }
 .notification-button {
   color: #ffffff !important;
 }
+
+
+/* MECARDEE_SIMPLE_USERS_V1 */
+.settings-button {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
+}
+
+.settings-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.settings-button svg {
+  width: 21px;
+  height: 21px;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.user-settings-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.current-user-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--paper);
+}
+
+.user-avatar {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  background: var(--deep);
+  color: var(--lime);
+  font-family: "Manrope", sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.current-user-card > div:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.current-user-card span,
+.current-user-card small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.current-user-card strong {
+  font-family: "Manrope", sans-serif;
+  font-size: 17px;
+}
+
+.account-message {
+  padding: 11px 13px;
+  border: 1px solid #c8e7df;
+  border-radius: 11px;
+  background: var(--aqua-soft);
+  color: #087666;
+  font-size: 12px;
+}
+
+.account-setting-section {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.admin-user-section {
+  background: #fbfcfb;
+}
+
+.account-section-heading {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 17px;
+}
+
+.account-section-heading > span {
+  width: 31px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: var(--aqua-soft);
+  color: #087666;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.account-section-heading h3 {
+  margin: 0;
+  font-family: "Manrope", sans-serif;
+  font-size: 16px;
+}
+
+.account-section-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.account-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+
+.account-form label {
+  display: grid;
+  gap: 7px;
+  color: #50615c;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.account-form label:first-child {
+  grid-column: 1 / -1;
+}
+
+.account-form .primary-button {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+.account-form button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+@media (max-width: 620px) {
+  .settings-button {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+  }
+
+  .top-actions .logout-button {
+    display: none;
+  }
+
+  .account-form {
+    grid-template-columns: 1fr;
+  }
+
+  .account-form label,
+  .account-form label:first-child,
+  .account-form .primary-button {
+    grid-column: auto;
+  }
+
+  .account-form .primary-button {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .account-setting-section {
+    padding: 15px;
+  }
+}
