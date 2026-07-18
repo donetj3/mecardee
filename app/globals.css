@@ -3078,3 +3078,81 @@ textarea { min-height: 88px; resize: vertical; }
     grid-template-columns: 1fr;
   }
 }
+
+/* MECARDEE_INLINE_TRANSACTION_EDIT_V1 */
+.transaction-action-heading {
+  width: 58px;
+  text-align: center !important;
+}
+
+.transaction-edit-cell {
+  width: 58px;
+  text-align: center;
+}
+
+.transaction-edit-button {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: white;
+  color: var(--deep);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.transaction-edit-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--deep);
+  background: var(--paper);
+}
+
+.transaction-edit-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+.transaction-edit-intro {
+  grid-column: 1 / -1;
+  padding-bottom: 4px;
+}
+
+.transaction-edit-intro h3 {
+  margin: 5px 0 4px;
+}
+
+.transaction-edit-intro p {
+  max-width: 660px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+@media (max-width: 700px) {
+  .transaction-edit-form {
+    grid-template-columns: 1fr;
+  }
+
+  .transaction-edit-form .full-field,
+  .transaction-edit-intro {
+    grid-column: auto;
+  }
+
+  .transaction-action-heading,
+  .transaction-edit-cell {
+    position: sticky;
+    right: 0;
+    background: white;
+    z-index: 2;
+  }
+
+  .transaction-action-heading {
+    background: var(--paper);
+  }
+}

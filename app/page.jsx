@@ -1,5 +1,7 @@
 "use client";
 
+// MECARDEE_INLINE_TRANSACTION_EDIT_V1
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import pdfMake from "pdfmake/build/pdfmake";
@@ -278,6 +280,7 @@ export default function Home() {
   const [showAlerts, setShowAlerts] = useState(false);
   const [modal, setModal] = useState("");
   const [workDraft, setWorkDraft] = useState(null);
+  const [transactionDraft, setTransactionDraft] = useState(null);
   const [activeCategory, setActiveCategory] = useState("all");
   const [workStatusFilter, setWorkStatusFilter] = useState("all");
   const [transactionFilters, setTransactionFilters] = useState({
@@ -761,6 +764,38 @@ export default function Home() {
     setModal(nextDraft.entryType === "Credit" ? "credit" : "works");
   }
 
+  function openEditTransaction(transaction) {
+    if (!isAdmin || transaction.type !== "Expense") return;
+
+    setTransactionDraft({
+      id: transaction.id,
+      date: transaction.date,
+      description: transaction.description,
+      categoryId: transaction.categoryId || activeCategories[0]?.id || "",
+      amount: transaction.amount,
+      notes: transaction.notes || ""
+    });
+    setModal("transaction");
+  }
+
+  async function saveTransaction(event) {
+    event.preventDefault();
+    if (!transactionDraft) return;
+
+    const result = await adminRpc("mecardee_admin_update_transaction", {
+      p_id: transactionDraft.id,
+      p_txn_date: transactionDraft.date,
+      p_description: transactionDraft.description,
+      p_category_id: transactionDraft.categoryId,
+      p_amount: Number(transactionDraft.amount || 0),
+      p_notes: transactionDraft.notes
+    }, "Transaction updated.");
+
+    if (result.ok) {
+      setTransactionDraft(null);
+      setModal("");
+    }
+  }
   async function saveWork(event) {
     event.preventDefault();
     if (!workDraft) return;
@@ -1352,10 +1387,7 @@ export default function Home() {
             <div className="admin-action-row">
               <button className="text-button" type="button" onClick={() => setModal("categories")}>Edit categories</button>
 
-              <button className="text-button" type="button" onClick={() => {
-                setWorkDraft(emptyWork(activeCategories));
-                setModal("works");
-              }}>Edit works</button>
+
               <button className="text-button" type="button" onClick={() => setModal("project")}>Project settings</button>
             </div>
           )}
@@ -1691,6 +1723,7 @@ export default function Home() {
                   <th>Category</th>
                   <th>Amount (₹)</th>
                   <th>Net Effect (₹)</th>
+                  {isAdmin && <th className="transaction-action-heading">Edit</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1708,11 +1741,26 @@ export default function Home() {
                       <td className={transaction.type === "Credit" ? "credit-effect" : "expense-effect"}>
                         {transaction.type === "Credit" ? "+" : "-"}{formatPlainMoney(transaction.amount)}
                       </td>
+                      {isAdmin && (
+                        <td className="transaction-edit-cell">
+                          {transaction.type === "Expense" && (
+                            <button
+                              className="transaction-edit-button"
+                              type="button"
+                              onClick={() => openEditTransaction(transaction)}
+                              aria-label={`Edit ${transaction.description}`}
+                              title="Edit transaction"
+                            >
+                              {"\u270E"}
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
                 {pagedTransactions.length === 0 && (
-                  <tr><td colSpan="8" className="empty-table-row">No transactions match the selected filters.</td></tr>
+                  <tr><td colSpan={isAdmin ? 9 : 8} className="empty-table-row">No transactions match the selected filters.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1883,6 +1931,83 @@ export default function Home() {
         </Modal>
       )}
 
+      {modal === "transaction" && isAdmin && transactionDraft && (
+        <Modal title="Edit transaction" eyebrow="Administrator controls" onClose={() => {
+          setTransactionDraft(null);
+          setModal("");
+        }}>
+          <form className="transaction-edit-form" onSubmit={saveTransaction}>
+            <div className="transaction-edit-intro">
+              <span className="eyebrow">Expense register</span>
+              <h3>{transactionDraft.description}</h3>
+              <p>Change the category or correct the transaction details. The filtered report updates automatically after saving.</p>
+            </div>
+
+            <label className="full-field">Description
+              <input
+                autoFocus
+                required
+                value={transactionDraft.description}
+                onChange={(event) => setTransactionDraft({ ...transactionDraft, description: event.target.value })}
+              />
+            </label>
+
+            <label>Transaction date
+              <input
+                type="date"
+                required
+                value={transactionDraft.date}
+                onChange={(event) => setTransactionDraft({ ...transactionDraft, date: event.target.value })}
+              />
+            </label>
+
+            <label>Category
+              <select
+                required
+                value={transactionDraft.categoryId}
+                onChange={(event) => setTransactionDraft({ ...transactionDraft, categoryId: event.target.value })}
+              >
+                {activeCategories.map((category) => (
+                  <option value={category.id} key={category.id}>{category.name}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="full-field">Amount (₹)
+              <input
+                className="plain-amount-input"
+                type="number"
+                inputMode="numeric"
+                min="1"
+                step="1"
+                required
+                placeholder="Enter amount"
+                value={transactionDraft.amount === 0 ? "" : transactionDraft.amount}
+                onChange={(event) => setTransactionDraft({
+                  ...transactionDraft,
+                  amount: Number(event.target.value || 0)
+                })}
+              />
+            </label>
+
+            <label className="full-field">Notes
+              <textarea
+                value={transactionDraft.notes}
+                onChange={(event) => setTransactionDraft({ ...transactionDraft, notes: event.target.value })}
+                placeholder="Optional notes"
+              />
+            </label>
+
+            <div className="modal-actions full-field">
+              <button className="secondary-button" type="button" onClick={() => {
+                setTransactionDraft(null);
+                setModal("");
+              }}>Cancel</button>
+              <button className="primary-button" type="submit" disabled={isSyncing}>Save transaction</button>
+            </div>
+          </form>
+        </Modal>
+      )}
       {modal === "credit" && isAdmin && workDraft && (
         <Modal title="Credit entries" eyebrow="Administrator controls" onClose={() => setModal("")} wide>
           <div className="work-editor-layout">
