@@ -8,6 +8,10 @@ import pdfFonts from "pdfmake/build/vfs_fonts";
 pdfMake.vfs = pdfFonts;
 
 // MECARDEE_CATEGORIES_REPORTS_PERMISSIONS_V1
+// MECARDEE_FILTERED_TOTALS_CREDIT_SHAREHOLDER_V1
+// MECARDEE_SEPARATE_CREDIT_ENTRY_V1
+// MECARDEE_FILTERED_EXPORTS_CREDIT_LABEL_V1
+// MECARDEE_WORK_EDITOR_USABILITY_V2
 const USER_SESSION_KEY = "mecardee-user-session";
 const PAGE_SIZE = 25;
 
@@ -132,6 +136,7 @@ function mapWork(row) {
     isCompleted: Boolean(row.is_completed ?? Number(row.progress || 0) >= 100),
     entryType: row.entry_type || "Work",
     amount: Number(row.amount || row.actual_cost || 0),
+    creditShareholderId: row.credit_shareholder_id || "",
     notes: row.notes || "",
     sortOrder: Number(row.sort_order || 0)
   };
@@ -147,7 +152,8 @@ function mapTransaction(row) {
     categoryId: row.category_id,
     amount: Number(row.amount || 0),
     notes: row.notes || "",
-    workId: row.work_id || null
+    workId: row.work_id || null,
+    shareholderId: row.shareholder_id || null
   };
 }
 
@@ -240,10 +246,20 @@ function emptyWork(categories) {
     workDate: toDateInput(),
     deadline: dateFromNow(7),
     isCompleted: false,
-    entryType: "Work",
+    entryType: "Expense",
     amount: 0,
+    creditShareholderId: "",
     notes: "",
     sortOrder: 0
+  };
+}
+
+function emptyCredit(categories) {
+  return {
+    ...emptyWork(categories),
+    deadline: toDateInput(),
+    isCompleted: true,
+    entryType: "Credit"
   };
 }
 
@@ -367,6 +383,11 @@ export default function Home() {
     [data]
   );
 
+  const shareholderById = useMemo(
+    () => Object.fromEntries((data?.shareholders || []).map((shareholder) => [shareholder.id, shareholder])),
+    [data]
+  );
+
   const report = useMemo(() => {
     const transactions = data?.transactions || [];
     const expenses = transactions.filter((transaction) => transaction.type === "Expense");
@@ -430,14 +451,18 @@ export default function Home() {
     ? Math.round(activeCategories.reduce((sum, category) => sum + category.completion, 0) / activeCategories.length)
     : 0;
 
-  const completedWorks = data?.works.filter((work) => work.isCompleted).length || 0;
-  const overdueWorks = data?.works.filter((work) => workStatus(work) === "Overdue").length || 0;
+  const trackedWorks = (data?.works || []).filter((work) => work.entryType !== "Credit");
+  const completedWorks = trackedWorks.filter((work) => work.isCompleted).length;
+  const overdueWorks = trackedWorks.filter((work) => workStatus(work) === "Overdue").length;
   const openingDate = parseLocalDate(data?.project.openingDate);
   const openingDays = openingDate ? Math.max(0, daysBetween(startOfToday(), openingDate)) : 0;
 
   const alerts = useMemo(() => {
     if (!data) return [];
-    const nextAlerts = data.works.map(workAlert).filter(Boolean);
+    const nextAlerts = data.works
+      .filter((work) => work.entryType !== "Credit")
+      .map(workAlert)
+      .filter(Boolean);
     const opening = parseLocalDate(data.project.openingDate);
     if (opening) {
       const days = daysBetween(startOfToday(), opening);
@@ -459,7 +484,7 @@ export default function Home() {
   }, [data]);
 
   const visibleWorks = useMemo(() => {
-    const works = data?.works || [];
+    const works = (data?.works || []).filter((work) => work.entryType !== "Credit");
     return works
       .filter((work) => activeCategory === "all" || work.categoryId === activeCategory)
       .filter((work) => {
@@ -470,20 +495,55 @@ export default function Home() {
       .sort((a, b) => String(b.workDate).localeCompare(String(a.workDate)) || a.sortOrder - b.sortOrder);
   }, [activeCategory, data, workStatusFilter]);
 
+  const editableWorks = useMemo(
+    () => (data?.works || [])
+      .filter((work) => work.entryType !== "Credit")
+      .slice()
+      .sort((a, b) => {
+        const completionOrder = Number(Boolean(a.isCompleted)) - Number(Boolean(b.isCompleted));
+        if (completionOrder !== 0) return completionOrder;
+
+        const dateOrder = String(b.workDate || "").localeCompare(String(a.workDate || ""));
+        if (dateOrder !== 0) return dateOrder;
+
+        return String(a.title || "").localeCompare(String(b.title || ""));
+      }),
+    [data]
+  );
+
   const filteredTransactions = useMemo(() => {
     const search = transactionFilters.search.trim().toLowerCase();
     return (data?.transactions || []).filter((transaction) => {
       if (transactionFilters.from && transaction.date < transactionFilters.from) return false;
       if (transactionFilters.to && transaction.date > transactionFilters.to) return false;
       if (transactionFilters.type !== "all" && transaction.type !== transactionFilters.type) return false;
-      if (transactionFilters.category !== "all" && transaction.categoryId !== transactionFilters.category) return false;
+      if (
+        transactionFilters.category !== "all" &&
+        (transaction.type === "Credit" || transaction.categoryId !== transactionFilters.category)
+      ) return false;
       if (search) {
-        const haystack = `${transaction.description} ${transaction.notes} ${categoryById[transaction.categoryId]?.name || ""}`.toLowerCase();
+        const haystack = `${transaction.description} ${transaction.notes} ${categoryById[transaction.categoryId]?.name || ""} ${shareholderById[transaction.shareholderId]?.name || ""}`.toLowerCase();
         if (!haystack.includes(search)) return false;
       }
       return true;
     });
-  }, [categoryById, data, transactionFilters]);
+  }, [categoryById, data, shareholderById, transactionFilters]);
+
+  const filteredTransactionTotals = useMemo(() => {
+    const expenses = filteredTransactions
+      .filter((transaction) => transaction.type === "Expense")
+      .reduce((sum, transaction) => sum + transaction.amount, 0);
+    const credits = filteredTransactions
+      .filter((transaction) => transaction.type === "Credit")
+      .reduce((sum, transaction) => sum + transaction.amount, 0);
+
+    return {
+      totalAmount: expenses + credits,
+      expenses,
+      credits,
+      netEffect: credits - expenses
+    };
+  }, [filteredTransactions]);
 
   const totalTransactionPages = Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE));
   const pagedTransactions = filteredTransactions.slice(
@@ -686,30 +746,52 @@ export default function Home() {
     setModal("works");
   }
 
+  function openNewCredit() {
+    setWorkDraft(emptyCredit(activeCategories));
+    setModal("credit");
+  }
+
   function openEditWork(work) {
-    setWorkDraft({ ...work });
-    setModal("works");
+    const nextDraft = {
+      ...work,
+      entryType: work.entryType === "Credit" ? "Credit" : "Expense",
+      creditShareholderId: work.creditShareholderId || ""
+    };
+    setWorkDraft(nextDraft);
+    setModal(nextDraft.entryType === "Credit" ? "credit" : "works");
   }
 
   async function saveWork(event) {
     event.preventDefault();
     if (!workDraft) return;
 
+    const isCreditEntry = workDraft.entryType === "Credit";
+    const creditSourceName = isCreditEntry
+      ? shareholderById[workDraft.creditShareholderId]?.name || "Other"
+      : workDraft.owner;
+
     const result = await adminRpc("mecardee_admin_save_work", {
       p_id: workDraft.id || null,
-      p_title: workDraft.title,
+      p_title: isCreditEntry ? `Credit - ${creditSourceName}` : workDraft.title,
       p_category_id: workDraft.categoryId,
-      p_owner: workDraft.owner,
+      p_owner: creditSourceName,
       p_work_date: workDraft.workDate,
-      p_deadline: workDraft.deadline,
-      p_is_completed: Boolean(workDraft.isCompleted),
-      p_entry_type: workDraft.entryType,
+      p_deadline: isCreditEntry ? workDraft.workDate : workDraft.deadline,
+      p_is_completed: isCreditEntry ? true : Boolean(workDraft.isCompleted),
+      p_entry_type: isCreditEntry ? "Credit" : "Expense",
       p_amount: Number(workDraft.amount || 0),
+      p_credit_shareholder_id: isCreditEntry && workDraft.creditShareholderId
+        ? workDraft.creditShareholderId
+        : null,
       p_notes: workDraft.notes,
       p_sort_order: Number(workDraft.sortOrder || 0)
-    }, workDraft.id ? "Work updated." : "Today’s work added.");
+    }, workDraft.id
+      ? isCreditEntry ? "Credit updated." : "Work updated."
+      : isCreditEntry ? "Credit added." : "Today’s work added.");
 
-    if (result.ok) setWorkDraft(emptyWork(activeCategories));
+    if (result.ok) {
+      setWorkDraft(isCreditEntry ? emptyCredit(activeCategories) : emptyWork(activeCategories));
+    }
   }
 
   async function deleteWork(work) {
@@ -734,6 +816,9 @@ export default function Home() {
       p_is_completed: !work.isCompleted,
       p_entry_type: work.entryType,
       p_amount: work.amount,
+      p_credit_shareholder_id: work.entryType === "Credit" && work.creditShareholderId
+        ? work.creditShareholderId
+        : null,
       p_notes: work.notes,
       p_sort_order: work.sortOrder
     }, work.isCompleted ? "Work reopened." : "Work marked complete.");
@@ -743,6 +828,217 @@ export default function Home() {
     setTransactionFilters({ from: "", to: "", type: "all", category: "all", search: "" });
   }
 
+  function transactionDescriptionLabel(transaction) {
+    if (transaction.type === "Credit") {
+      return `Credit - ${shareholderById[transaction.shareholderId]?.name || "Other"}`;
+    }
+    return transaction.description;
+  }
+
+  function transactionCategoryLabel(transaction) {
+    if (transaction.type === "Credit") return "Credit";
+    return categoryById[transaction.categoryId]?.name || "Uncategorised";
+  }
+
+  function transactionFilterSummary() {
+    const parts = [];
+
+    if (transactionFilters.from) parts.push(`From ${formatDate(transactionFilters.from)}`);
+    if (transactionFilters.to) parts.push(`To ${formatDate(transactionFilters.to)}`);
+    if (transactionFilters.type !== "all") parts.push(`Type: ${transactionFilters.type}`);
+
+    if (transactionFilters.category !== "all") {
+      parts.push(`Category: ${categoryById[transactionFilters.category]?.name || "Selected category"}`);
+    }
+
+    if (transactionFilters.search.trim()) {
+      parts.push(`Search: ${transactionFilters.search.trim()}`);
+    }
+
+    return parts.length ? parts.join(" | ") : "All transactions";
+  }
+
+  function exportFilteredTransactionsPdf() {
+    if (!filteredTransactions.length) {
+      notify("No filtered transactions to export.");
+      return;
+    }
+
+    setIsExporting(true);
+
+    try {
+      const rows = filteredTransactions.map((transaction, index) => [
+        index + 1,
+        formatDate(transaction.date),
+        transaction.date.slice(0, 7),
+        transaction.type,
+        transactionDescriptionLabel(transaction),
+        transactionCategoryLabel(transaction),
+        { text: formatPlainMoney(transaction.amount), alignment: "right" },
+        {
+          text: `${transaction.type === "Credit" ? "+" : "-"}${formatPlainMoney(transaction.amount)}`,
+          alignment: "right"
+        }
+      ]);
+
+      const doc = {
+        pageSize: "A4",
+        pageOrientation: "landscape",
+        pageMargins: [28, 32, 28, 32],
+        content: [
+          { text: "MECARDEE - FILTERED TRANSACTION REGISTER", style: "title" },
+          {
+            text: transactionFilterSummary(),
+            style: "subtitle",
+            margin: [0, 4, 0, 14]
+          },
+          {
+            columns: [
+              { stack: [{ text: "MATCHING RECORDS", style: "kpiLabel" }, { text: String(filteredTransactions.length), style: "kpiValue" }] },
+              { stack: [{ text: "EXPENSES", style: "kpiLabel" }, { text: formatMoney(filteredTransactionTotals.expenses), style: "kpiValue" }] },
+              { stack: [{ text: "CREDITS", style: "kpiLabel" }, { text: formatMoney(filteredTransactionTotals.credits), style: "kpiValue" }] },
+              {
+                stack: [
+                  { text: "NET EFFECT", style: "kpiLabel" },
+                  {
+                    text: `${filteredTransactionTotals.netEffect >= 0 ? "+" : "-"}${formatMoney(Math.abs(filteredTransactionTotals.netEffect))}`,
+                    style: "kpiValue"
+                  }
+                ]
+              }
+            ],
+            columnGap: 12,
+            margin: [0, 0, 0, 18]
+          },
+          {
+            table: {
+              headerRows: 1,
+              widths: [28, 62, 48, 44, 145, 105, 68, 72],
+              body: [
+                ["Sl.", "Date", "Month", "Type", "Description", "Category", "Amount (₹)", "Net Effect (₹)"],
+                ...rows
+              ]
+            },
+            layout: "lightHorizontalLines",
+            fontSize: 7
+          }
+        ],
+        styles: {
+          title: { fontSize: 18, bold: true, color: "#071a17" },
+          subtitle: { fontSize: 8, color: "#64736f" },
+          kpiLabel: { fontSize: 8, bold: true, color: "#64736f" },
+          kpiValue: { fontSize: 16, bold: true, color: "#10201d", margin: [0, 3, 0, 0] }
+        },
+        defaultStyle: { font: "Roboto", fontSize: 8, color: "#10201d" },
+        footer(currentPage, pageCount) {
+          return {
+            text: `${data.project.name} · Filtered register · Page ${currentPage} of ${pageCount}`,
+            alignment: "center",
+            fontSize: 7,
+            color: "#64736f",
+            margin: [0, 8, 0, 0]
+          };
+        }
+      };
+
+      pdfMake.createPdf(doc).download(`mecardee-filtered-transactions-${toDateInput()}.pdf`);
+      notify("Filtered transaction PDF downloaded.");
+    } catch (error) {
+      console.error("Filtered PDF export failed:", error);
+      notify("Could not generate the filtered PDF.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  function exportFilteredTransactionsExcel() {
+    if (!filteredTransactions.length) {
+      notify("No filtered transactions to export.");
+      return;
+    }
+
+    try {
+      const escapeCell = (value) => String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+
+      const transactionRows = filteredTransactions.map((transaction, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeCell(formatDate(transaction.date))}</td>
+          <td>${escapeCell(transaction.date.slice(0, 7))}</td>
+          <td>${escapeCell(transaction.type)}</td>
+          <td>${escapeCell(transactionDescriptionLabel(transaction))}</td>
+          <td>${escapeCell(transactionCategoryLabel(transaction))}</td>
+          <td class="number">${transaction.amount}</td>
+          <td class="number">${transaction.type === "Credit" ? transaction.amount : -transaction.amount}</td>
+          <td>${escapeCell(transaction.notes)}</td>
+        </tr>
+      `).join("");
+
+      const workbook = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; color: #10201d; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #cfd8d3; padding: 7px; font-size: 11px; }
+    th { background: #eaf0ec; font-weight: bold; }
+    .title { font-size: 20px; font-weight: bold; background: #071a17; color: white; }
+    .subtitle { color: #52645f; }
+    .summary-label { background: #eaf0ec; font-weight: bold; }
+    .summary-value { font-weight: bold; }
+    .number { mso-number-format:"0"; text-align: right; }
+  </style>
+</head>
+<body>
+  <table>
+    <tr><td class="title" colspan="9">Mecardee - Filtered Transaction Register</td></tr>
+    <tr><td class="subtitle" colspan="9">${escapeCell(transactionFilterSummary())}</td></tr>
+    <tr>
+      <td class="summary-label">Matching records</td><td class="summary-value">${filteredTransactions.length}</td>
+      <td class="summary-label">Expenses</td><td class="summary-value">${filteredTransactionTotals.expenses}</td>
+      <td class="summary-label">Credits</td><td class="summary-value">${filteredTransactionTotals.credits}</td>
+      <td class="summary-label">Net effect</td><td class="summary-value">${filteredTransactionTotals.netEffect}</td>
+      <td></td>
+    </tr>
+    <tr><td colspan="9"></td></tr>
+    <tr>
+      <th>Sl. No.</th>
+      <th>Date</th>
+      <th>Month</th>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Category</th>
+      <th>Amount (₹)</th>
+      <th>Net Effect (₹)</th>
+      <th>Notes</th>
+    </tr>
+    ${transactionRows}
+  </table>
+</body>
+</html>`;
+
+      const blob = new Blob(["\ufeff", workbook], {
+        type: "application/vnd.ms-excel;charset=utf-8"
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `mecardee-filtered-transactions-${toDateInput()}.xls`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      notify("Filtered Excel report downloaded.");
+    } catch (error) {
+      console.error("Excel export failed:", error);
+      notify("Could not generate the Excel report.");
+    }
+  }
   function exportPdf() {
     if (!data) return;
     setIsExporting(true);
@@ -767,8 +1063,8 @@ export default function Home() {
         formatDate(transaction.date),
         transaction.date.slice(0, 7),
         transaction.type,
-        transaction.description,
-        transaction.type === "Credit" ? "Credit Received" : categoryById[transaction.categoryId]?.name || "Uncategorised",
+        transactionDescriptionLabel(transaction),
+        transactionCategoryLabel(transaction),
         { text: formatPlainMoney(transaction.amount), alignment: "right" },
         {
           text: `${transaction.type === "Credit" ? "" : "-"}${formatPlainMoney(transaction.amount)}`,
@@ -1005,6 +1301,7 @@ export default function Home() {
           </p>
           <div className="hero-actions">
             {isAdmin && <button className="light-button" type="button" onClick={openNewWork}>Add today’s work</button>}
+            {isAdmin && <button className="credit-action-button" type="button" onClick={openNewCredit}>Add credit</button>}
             <button className="ghost-button" type="button" onClick={() => document.getElementById("transactions")?.scrollIntoView({ behavior: "smooth" })}>
               View transaction register ↓
             </button>
@@ -1054,7 +1351,7 @@ export default function Home() {
           {isAdmin && (
             <div className="admin-action-row">
               <button className="text-button" type="button" onClick={() => setModal("categories")}>Edit categories</button>
-              <button className="text-button" type="button" onClick={() => setModal("shares")}>Edit shares</button>
+
               <button className="text-button" type="button" onClick={() => {
                 setWorkDraft(emptyWork(activeCategories));
                 setModal("works");
@@ -1213,6 +1510,9 @@ export default function Home() {
                     <span>◷ Deadline: {formatDate(work.deadline)}</span>
                     <span>👤 {work.owner || "Not assigned"}</span>
                     {work.entryType !== "Work" && <span>₹ {formatMoney(work.amount)}</span>}
+                    {work.entryType === "Credit" && (
+                      <span>From: {shareholderById[work.creditShareholderId]?.name || "Other"}</span>
+                    )}
                   </div>
                 </div>
                 {isAdmin && (
@@ -1306,7 +1606,27 @@ export default function Home() {
               <h2>Final Transaction Register</h2>
               <p>Sorted by date · Reporting period: {formatDate(report.periodStart)} to {formatDate(report.periodEnd)}</p>
             </div>
-            <span className="transaction-count-pill">{filteredTransactions.length} records</span>
+            <div className="transaction-title-actions">
+              <span className="transaction-count-pill">{filteredTransactions.length} records</span>
+              <div className="transaction-export-actions">
+                <button
+                  className="secondary-button transaction-export-button"
+                  type="button"
+                  onClick={exportFilteredTransactionsExcel}
+                  disabled={!filteredTransactions.length}
+                >
+                  Export Excel
+                </button>
+                <button
+                  className="secondary-button transaction-export-button"
+                  type="button"
+                  onClick={exportFilteredTransactionsPdf}
+                  disabled={!filteredTransactions.length || isExporting}
+                >
+                  {isExporting ? "Preparing…" : "Export PDF"}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="transaction-filter-grid">
@@ -1339,6 +1659,26 @@ export default function Home() {
             <button className="secondary-button reset-filter-button" type="button" onClick={resetTransactionFilters}>Reset filters</button>
           </div>
 
+          <div className="filtered-transaction-totals" aria-live="polite">
+            <article className="filtered-total-card primary">
+              <small>Filtered total amount</small>
+              <strong>{formatMoney(filteredTransactionTotals.totalAmount)}</strong>
+              <span>{filteredTransactions.length} matching transaction{filteredTransactions.length === 1 ? "" : "s"}</span>
+            </article>
+            <article className="filtered-total-card expense">
+              <small>Filtered expenses</small>
+              <strong>{formatMoney(filteredTransactionTotals.expenses)}</strong>
+            </article>
+            <article className="filtered-total-card credit">
+              <small>Filtered credits</small>
+              <strong>{formatMoney(filteredTransactionTotals.credits)}</strong>
+            </article>
+            <article className={`filtered-total-card ${filteredTransactionTotals.netEffect >= 0 ? "credit" : "expense"}`}>
+              <small>Filtered net effect</small>
+              <strong>{filteredTransactionTotals.netEffect >= 0 ? "+" : "−"}{formatMoney(Math.abs(filteredTransactionTotals.netEffect))}</strong>
+            </article>
+          </div>
+
           <div className="responsive-table transaction-table-wrap">
             <table className="transaction-table">
               <thead>
@@ -1362,8 +1702,8 @@ export default function Home() {
                       <td>{formatDate(transaction.date)}</td>
                       <td>{transaction.date.slice(0, 7)}</td>
                       <td><span className={`transaction-type ${transaction.type.toLowerCase()}`}>{transaction.type}</span></td>
-                      <td>{transaction.description}</td>
-                      <td>{transaction.type === "Credit" ? "Credit Received" : categoryById[transaction.categoryId]?.name || "Uncategorised"}</td>
+                      <td>{transactionDescriptionLabel(transaction)}</td>
+                      <td>{transactionCategoryLabel(transaction)}</td>
                       <td>{formatPlainMoney(transaction.amount)}</td>
                       <td className={transaction.type === "Credit" ? "credit-effect" : "expense-effect"}>
                         {transaction.type === "Credit" ? "+" : "-"}{formatPlainMoney(transaction.amount)}
@@ -1449,6 +1789,23 @@ export default function Home() {
                 </form>
               </section>
             )}
+
+            {isAdmin && (
+              <section className="account-setting-section admin-share-settings">
+                <div className="account-section-heading">
+                  <span>03</span>
+                  <div>
+                    <h3>Shareholder settings</h3>
+                    <p>Edit shareholder names, amounts and display order from the administrator settings.</p>
+                  </div>
+                </div>
+                <div className="account-quick-actions">
+                  <button className="secondary-button" type="button" onClick={() => setModal("shares")}>
+                    Edit shareholders and shares
+                  </button>
+                </div>
+              </section>
+            )}
           </div>
         </Modal>
       )}
@@ -1479,7 +1836,7 @@ export default function Home() {
               <form className="category-editor-row" onSubmit={(event) => saveCategory(event, category)} key={category.id}>
                 <label>Icon<input name="icon" defaultValue={category.icon} maxLength="4" /></label>
                 <label className="category-name-field">Category name<input name="name" defaultValue={category.name} required /></label>
-                <label>Budget (₹)<input name="budget" type="number" min="0" step="1" defaultValue={category.budget} /></label>
+                <label>Budget (₹)<input className="plain-amount-input" name="budget" type="number" min="0" step="1" defaultValue={category.budget} /></label>
                 <label>Completion %
                   <input name="completion" type="number" min="0" max="100" step="1" defaultValue={category.completion} />
                 </label>
@@ -1494,7 +1851,7 @@ export default function Home() {
             <div><span className="eyebrow">Add category</span><h3>New main category</h3></div>
             <input name="icon" placeholder="Icon" defaultValue="•" maxLength="4" />
             <input name="name" placeholder="Category name" required />
-            <input name="budget" type="number" min="0" step="1" placeholder="Budget" />
+            <input className="plain-amount-input" name="budget" type="number" min="0" step="1" placeholder="Budget" />
             <input name="completion" type="number" min="0" max="100" step="1" placeholder="Completion %" />
             <input name="sortOrder" type="number" step="1" placeholder="Order" />
             <input name="isActive" type="hidden" value="on" />
@@ -1510,7 +1867,7 @@ export default function Home() {
             {data.shareholders.map((shareholder) => (
               <form className="share-editor-row" onSubmit={(event) => saveShareholder(event, shareholder)} key={shareholder.id}>
                 <label>Shareholder name<input name="name" defaultValue={shareholder.name} required /></label>
-                <label>Share amount (₹)<input name="amount" type="number" min="0" step="1" defaultValue={shareholder.amount} /></label>
+                <label>Share amount (₹)<input className="plain-amount-input" name="amount" type="number" min="0" step="1" defaultValue={shareholder.amount} /></label>
                 <label>Order<input name="sortOrder" type="number" step="1" defaultValue={shareholder.sortOrder} /></label>
                 <button className="small-button" type="submit" disabled={isSyncing}>Save share</button>
               </form>
@@ -1519,16 +1876,81 @@ export default function Home() {
           <form className="new-editor-row share-add-row" onSubmit={(event) => saveShareholder(event, null)}>
             <div><span className="eyebrow">Optional</span><h3>Add shareholder</h3></div>
             <input name="name" placeholder="Name" required />
-            <input name="amount" type="number" min="0" step="1" placeholder="Share amount" />
+            <input className="plain-amount-input" name="amount" type="number" min="0" step="1" placeholder="Share amount" />
             <input name="sortOrder" type="number" step="1" placeholder="Order" />
             <button className="primary-button" type="submit" disabled={isSyncing}>Add shareholder</button>
           </form>
         </Modal>
       )}
 
+      {modal === "credit" && isAdmin && workDraft && (
+        <Modal title="Credit entries" eyebrow="Administrator controls" onClose={() => setModal("")} wide>
+          <div className="work-editor-layout">
+            <form className="work-editor-form" onSubmit={saveWork}>
+              <div className="work-editor-title">
+                <span className="eyebrow">{workDraft.id ? "Edit selected credit" : "Add credit"}</span>
+                <h3>{workDraft.id ? workDraft.title : "New credit entry"}</h3>
+              </div>
+              <div className="credit-description-preview full-field">
+                <span>Transaction description</span>
+                <strong>Credit - {shareholderById[workDraft.creditShareholderId]?.name || "Other"}</strong>
+              </div>
+              <label>Credit date
+                <input type="date" required value={workDraft.workDate} onChange={(event) => setWorkDraft({ ...workDraft, workDate: event.target.value })} />
+              </label>
+              <label>Credit received from
+                <select
+                  autoFocus
+                  value={workDraft.creditShareholderId}
+                  onChange={(event) => setWorkDraft({ ...workDraft, creditShareholderId: event.target.value })}
+                >
+                  <option value="">Other</option>
+                  {data.shareholders.map((shareholder) => (
+                    <option value={shareholder.id} key={shareholder.id}>{shareholder.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>Credit amount (₹)
+                <input
+                  className="plain-amount-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                  value={workDraft.amount === 0 ? "" : workDraft.amount}
+                  onChange={(event) => setWorkDraft({ ...workDraft, amount: Number(event.target.value || 0) })}
+                />
+              </label>
+              <label className="full-field">Notes
+                <textarea value={workDraft.notes} onChange={(event) => setWorkDraft({ ...workDraft, notes: event.target.value })} placeholder="Credit details for the transaction register" />
+              </label>
+              <div className="modal-actions full-field">
+                {workDraft.id && <button className="delete-button" type="button" onClick={() => deleteWork(workDraft)}>Delete</button>}
+                <button className="secondary-button" type="button" onClick={() => setWorkDraft(emptyCredit(activeCategories))}>Clear</button>
+                <button className="primary-button" type="submit" disabled={isSyncing}>{workDraft.id ? "Save credit" : "Add credit"}</button>
+              </div>
+            </form>
+
+            <aside className="work-manager-list">
+              <div><span className="eyebrow">Credit history</span><h3>Select to edit</h3></div>
+              <div className="work-manager-scroll">
+                {data.works.filter((work) => work.entryType === "Credit").map((work) => (
+                  <button type="button" className={workDraft.id === work.id ? "selected" : ""} onClick={() => openEditWork(work)} key={work.id}>
+                    <span>₹</span>
+                    <div><strong>Credit - {shareholderById[work.creditShareholderId]?.name || "Other"}</strong><small>{formatDate(work.workDate)} · ₹ {formatMoney(work.amount)}</small></div>
+                  </button>
+                ))}
+                {data.works.filter((work) => work.entryType === "Credit").length === 0 && (
+                  <div className="empty-state compact"><p>No credit entries yet.</p></div>
+                )}
+              </div>
+            </aside>
+          </div>
+        </Modal>
+      )}
       {modal === "works" && isAdmin && workDraft && (
         <Modal title="Edit works" eyebrow="Administrator controls" onClose={() => setModal("")} wide>
-          <div className="work-editor-layout">
+          <div className="work-editor-layout works-editor-layout">
             <form className="work-editor-form" onSubmit={saveWork}>
               <div className="work-editor-title">
                 <span className="eyebrow">{workDraft.id ? "Edit selected work" : "Add today’s work"}</span>
@@ -1551,26 +1973,16 @@ export default function Home() {
               <label>Deadline
                 <input type="date" required value={workDraft.deadline} onChange={(event) => setWorkDraft({ ...workDraft, deadline: event.target.value })} />
               </label>
-              <label>Report entry
-                <select value={workDraft.entryType} onChange={(event) => setWorkDraft({ ...workDraft, entryType: event.target.value, amount: event.target.value === "Work" ? 0 : workDraft.amount })}>
-                  <option value="Work">Work only · no financial entry</option>
-                  <option value="Expense">Expense · include in report</option>
-                  <option value="Credit">Credit · include in report</option>
-                </select>
-              </label>
-              <label>Amount (₹)
+              <label>Expense amount (₹)
                 <input
+                  className="plain-amount-input"
                   type="number"
                   min="0"
                   step="1"
-                  disabled={workDraft.entryType === "Work"}
-                  required={workDraft.entryType !== "Work"}
-                  value={workDraft.amount}
+                  required
+                  value={workDraft.amount === 0 ? "" : workDraft.amount}
                   onChange={(event) => setWorkDraft({ ...workDraft, amount: Number(event.target.value || 0) })}
                 />
-              </label>
-              <label>Display order
-                <input type="number" step="1" value={workDraft.sortOrder} onChange={(event) => setWorkDraft({ ...workDraft, sortOrder: Number(event.target.value || 0) })} />
               </label>
               <label className="checkbox-field work-complete-field">
                 <input type="checkbox" checked={workDraft.isCompleted} onChange={(event) => setWorkDraft({ ...workDraft, isCompleted: event.target.checked })} />
@@ -1587,14 +1999,24 @@ export default function Home() {
             </form>
 
             <aside className="work-manager-list">
-              <div><span className="eyebrow">Existing works</span><h3>Select to edit</h3></div>
+              <div>
+                <span className="eyebrow">Existing works</span>
+                <h3>All works · {editableWorks.length}</h3>
+                <p className="work-list-order-note">Open works appear first, followed by completed works. Newest dates appear first.</p>
+              </div>
               <div className="work-manager-scroll">
-                {data.works.map((work) => (
-                  <button type="button" className={workDraft.id === work.id ? "selected" : ""} onClick={() => setWorkDraft({ ...work })} key={work.id}>
+                {editableWorks.map((work) => (
+                  <button type="button" className={workDraft.id === work.id ? "selected" : ""} onClick={() => openEditWork(work)} key={work.id}>
                     <span>{categoryById[work.categoryId]?.icon || "•"}</span>
-                    <div><strong>{work.title}</strong><small>{formatDate(work.workDate)} · {workStatus(work)}</small></div>
+                    <div>
+                      <strong>{work.title}</strong>
+                      <small>{categoryById[work.categoryId]?.name || "Uncategorised"} · {formatDate(work.workDate)} · {workStatus(work)}</small>
+                    </div>
                   </button>
                 ))}
+                {editableWorks.length === 0 && (
+                  <div className="empty-state compact"><p>No work items have been added yet.</p></div>
+                )}
               </div>
             </aside>
           </div>

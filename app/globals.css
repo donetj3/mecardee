@@ -2840,3 +2840,241 @@ textarea { min-height: 88px; resize: vertical; }
     min-height: 125px;
   }
 }
+
+/* MECARDEE_FILTERED_TOTALS_CREDIT_SHAREHOLDER_V1 */
+.filtered-transaction-totals {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.25fr) repeat(3, minmax(160px, .75fr));
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.filtered-total-card {
+  min-height: 94px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+}
+
+.filtered-total-card small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .45px;
+  text-transform: uppercase;
+}
+
+.filtered-total-card strong {
+  font-family: "Manrope", sans-serif;
+  font-size: 21px;
+  letter-spacing: -.6px;
+}
+
+.filtered-total-card span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.filtered-total-card.primary {
+  color: white;
+  border-color: var(--deep);
+  background: var(--deep);
+}
+
+.filtered-total-card.primary small,
+.filtered-total-card.primary span {
+  color: rgba(255,255,255,.64);
+}
+
+.filtered-total-card.expense strong {
+  color: var(--danger);
+}
+
+.filtered-total-card.credit strong {
+  color: #2d7c42;
+}
+
+@media (max-width: 980px) {
+  .filtered-transaction-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .filtered-transaction-totals {
+    grid-template-columns: 1fr;
+  }
+
+  .filtered-total-card {
+    min-height: 82px;
+  }
+}
+
+
+/* MECARDEE_SEPARATE_CREDIT_ENTRY_V1 */
+.credit-action-button {
+  border: 1px solid rgba(215, 255, 79, .65);
+  border-radius: 11px;
+  padding: 13px 17px;
+  background: var(--lime);
+  color: var(--deep);
+  font-weight: 800;
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.credit-action-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(215, 255, 79, .16);
+}
+
+/* MECARDEE_FILTERED_EXPORTS_CREDIT_LABEL_V1 */
+.transaction-title-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.transaction-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.transaction-export-button {
+  min-height: 39px;
+  padding: 0 14px !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+  background: white !important;
+  white-space: nowrap;
+}
+
+.transaction-export-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.credit-description-preview {
+  min-height: 68px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--paper);
+}
+
+.credit-description-preview span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .55px;
+}
+
+.credit-description-preview strong {
+  color: var(--deep);
+  font-size: 15px;
+}
+
+/* Keep monetary fields as plain numeric boxes without browser stepper arrows. */
+.plain-amount-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.plain-amount-input::-webkit-outer-spin-button,
+.plain-amount-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+@media (max-width: 760px) {
+  .transaction-title-actions {
+    width: 100%;
+    justify-items: stretch;
+  }
+
+  .transaction-export-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .transaction-export-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .transaction-export-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* MECARDEE_WORK_EDITOR_USABILITY_V1 */
+.account-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.account-quick-actions .secondary-button {
+  color: var(--ink);
+  border-color: var(--line);
+  background: white;
+}
+
+.works-editor-layout {
+  grid-template-columns: 1fr;
+}
+
+.works-editor-layout .work-manager-list {
+  min-height: 0;
+}
+
+.works-editor-layout .work-manager-list > div:first-child {
+  margin-bottom: 14px;
+}
+
+.work-list-order-note {
+  max-width: 680px;
+  margin: -7px 0 0;
+  color: rgba(255, 255, 255, .58);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.works-editor-layout .work-manager-scroll {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  max-height: none;
+  overflow: visible;
+  gap: 10px;
+}
+
+.works-editor-layout .work-manager-scroll button {
+  min-height: 70px;
+  align-content: center;
+}
+
+.works-editor-layout .work-manager-scroll strong {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+}
+
+.works-editor-layout .work-manager-scroll small {
+  line-height: 1.45;
+}
+
+@media (max-width: 620px) {
+  .works-editor-layout .work-manager-scroll {
+    grid-template-columns: 1fr;
+  }
+}
