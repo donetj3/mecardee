@@ -1,5 +1,7 @@
 "use client";
 
+// MECARDEE_TODAY_OPEN_WORK_SORT_V1
+
 // MECARDEE_INLINE_TRANSACTION_EDIT_V1
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -282,7 +284,6 @@ export default function Home() {
   const [workDraft, setWorkDraft] = useState(null);
   const [transactionDraft, setTransactionDraft] = useState(null);
   const [activeCategory, setActiveCategory] = useState("all");
-  const [workStatusFilter, setWorkStatusFilter] = useState("all");
   const [transactionFilters, setTransactionFilters] = useState({
     from: "",
     to: "",
@@ -290,6 +291,7 @@ export default function Home() {
     category: "all",
     search: ""
   });
+  const [transactionSort, setTransactionSort] = useState("date-asc");
   const [transactionPage, setTransactionPage] = useState(1);
 
   const isAdmin = Boolean(currentUser?.isAdmin && currentUser?.username === "delvin");
@@ -486,17 +488,23 @@ export default function Home() {
     return nextAlerts;
   }, [data]);
 
-  const visibleWorks = useMemo(() => {
-    const works = (data?.works || []).filter((work) => work.entryType !== "Credit");
-    return works
+  const { todayWorks, openWorks } = useMemo(() => {
+    const today = toDateInput();
+    const works = (data?.works || [])
+      .filter((work) => work.entryType !== "Credit")
       .filter((work) => activeCategory === "all" || work.categoryId === activeCategory)
-      .filter((work) => {
-        if (workStatusFilter === "all") return true;
-        return workStatus(work).toLowerCase() === workStatusFilter;
-      })
       .slice()
-      .sort((a, b) => String(b.workDate).localeCompare(String(a.workDate)) || a.sortOrder - b.sortOrder);
-  }, [activeCategory, data, workStatusFilter]);
+      .sort((a, b) => {
+        const dateOrder = String(b.workDate || "").localeCompare(String(a.workDate || ""));
+        if (dateOrder !== 0) return dateOrder;
+        return Number(a.sortOrder || 0) - Number(b.sortOrder || 0);
+      });
+
+    return {
+      todayWorks: works.filter((work) => work.workDate === today),
+      openWorks: works.filter((work) => !work.isCompleted)
+    };
+  }, [activeCategory, data]);
 
   const editableWorks = useMemo(
     () => (data?.works || [])
@@ -516,7 +524,7 @@ export default function Home() {
 
   const filteredTransactions = useMemo(() => {
     const search = transactionFilters.search.trim().toLowerCase();
-    return (data?.transactions || []).filter((transaction) => {
+    const filtered = (data?.transactions || []).filter((transaction) => {
       if (transactionFilters.from && transaction.date < transactionFilters.from) return false;
       if (transactionFilters.to && transaction.date > transactionFilters.to) return false;
       if (transactionFilters.type !== "all" && transaction.type !== transactionFilters.type) return false;
@@ -530,7 +538,51 @@ export default function Home() {
       }
       return true;
     });
-  }, [categoryById, data, shareholderById, transactionFilters]);
+
+    const [sortKey, sortDirection] = transactionSort.split("-");
+    const direction = sortDirection === "desc" ? -1 : 1;
+    const textValue = (transaction, key) => {
+      if (key === "type") return transaction.type || "";
+      if (key === "description") {
+        return transaction.type === "Credit"
+          ? `Credit - ${shareholderById[transaction.shareholderId]?.name || "Other"}`
+          : transaction.description || "";
+      }
+      if (key === "category") {
+        return transaction.type === "Credit"
+          ? "Credit"
+          : categoryById[transaction.categoryId]?.name || "Uncategorised";
+      }
+      return "";
+    };
+
+    return filtered.slice().sort((a, b) => {
+      let comparison = 0;
+
+      if (sortKey === "serial") {
+        comparison = Number(a.sortOrder || 0) - Number(b.sortOrder || 0);
+      } else if (sortKey === "date" || sortKey === "month") {
+        comparison = String(a.date || "").localeCompare(String(b.date || ""));
+      } else if (sortKey === "amount") {
+        comparison = Number(a.amount || 0) - Number(b.amount || 0);
+      } else if (sortKey === "net") {
+        const aNet = a.type === "Credit" ? Number(a.amount || 0) : -Number(a.amount || 0);
+        const bNet = b.type === "Credit" ? Number(b.amount || 0) : -Number(b.amount || 0);
+        comparison = aNet - bNet;
+      } else {
+        comparison = textValue(a, sortKey).localeCompare(textValue(b, sortKey), undefined, {
+          numeric: true,
+          sensitivity: "base"
+        });
+      }
+
+      if (comparison === 0) {
+        comparison = String(a.date || "").localeCompare(String(b.date || ""));
+      }
+
+      return comparison * direction;
+    });
+  }, [categoryById, data, shareholderById, transactionFilters, transactionSort]);
 
   const filteredTransactionTotals = useMemo(() => {
     const expenses = filteredTransactions
@@ -556,7 +608,7 @@ export default function Home() {
 
   useEffect(() => {
     setTransactionPage(1);
-  }, [transactionFilters]);
+  }, [transactionFilters, transactionSort]);
 
   useEffect(() => {
     if (transactionPage > totalTransactionPages) setTransactionPage(totalTransactionPages);
@@ -861,6 +913,21 @@ export default function Home() {
 
   function resetTransactionFilters() {
     setTransactionFilters({ from: "", to: "", type: "all", category: "all", search: "" });
+    setTransactionSort("date-asc");
+  }
+
+  function toggleTransactionSort(key, defaultDirection = "asc") {
+    setTransactionSort((current) => {
+      const [currentKey, currentDirection] = current.split("-");
+      if (currentKey !== key) return `${key}-${defaultDirection}`;
+      return `${key}-${currentDirection === "asc" ? "desc" : "asc"}`;
+    });
+  }
+
+  function transactionSortIcon(key) {
+    const [currentKey, currentDirection] = transactionSort.split("-");
+    if (currentKey !== key) return "\u2195";
+    return currentDirection === "asc" ? "\u2191" : "\u2193";
   }
 
   function transactionDescriptionLabel(transaction) {
@@ -1261,6 +1328,56 @@ export default function Home() {
     );
   }
 
+  function renderWorkList(items, emptyTitle, emptyMessage, allowAdd = false) {
+    if (items.length === 0) {
+      return (
+        <div className="empty-state compact-work-empty">
+          <span>＋</span>
+          <h3>{emptyTitle}</h3>
+          <p>{emptyMessage}</p>
+          {allowAdd && isAdmin && (
+            <button className="primary-button" type="button" onClick={openNewWork}>Add work</button>
+          )}
+        </div>
+      );
+    }
+
+    return items.map((work) => {
+      const category = categoryById[work.categoryId];
+      const status = workStatus(work);
+
+      return (
+        <article className="work-card" key={work.id}>
+          <div className={`status-dot ${status.toLowerCase()}`} />
+          <div className="work-card-copy">
+            <div className="task-meta">
+              <span>{category?.icon || "•"} {category?.name || "Uncategorised"}</span>
+              <span className={`status-badge ${status.toLowerCase()}`}>{status}</span>
+              <span className="report-entry-badge expense">Expense entry</span>
+            </div>
+            <h3>{work.title}</h3>
+            {work.notes && <p>{work.notes}</p>}
+            <div className="work-details">
+              <span>▣ Work date: {formatDate(work.workDate)}</span>
+              <span>◷ Deadline: {formatDate(work.deadline)}</span>
+              <span>👤 {work.owner || "Not assigned"}</span>
+              <span>₹ {formatMoney(work.amount)}</span>
+            </div>
+          </div>
+          {isAdmin && (
+            <div className="work-card-actions">
+              <button className="small-button" type="button" onClick={() => toggleWorkCompleted(work)}>
+                {work.isCompleted ? "Reopen" : "Mark complete"}
+              </button>
+              <button className="secondary-task-button" type="button" onClick={() => openEditWork(work)}>Edit</button>
+              <button className="delete-button" type="button" onClick={() => deleteWork(work)}>Delete</button>
+            </div>
+          )}
+        </article>
+      );
+    });
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -1496,69 +1613,44 @@ export default function Home() {
         <div className="section-heading work-heading">
           <div>
             <span className="eyebrow">Daily work register</span>
-            <h2>Today’s work & site activity</h2>
+            <h2>Today’s work</h2>
+            <p className="work-section-description">Open and completed works dated {formatDate(toDateInput())}.</p>
           </div>
           {isAdmin && <button className="primary-button" type="button" onClick={openNewWork}>＋ Add work</button>}
         </div>
 
-        <div className="work-filter-panel">
+        <div className="work-filter-panel work-category-filter">
           <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value)} aria-label="Filter works by category">
             <option value="all">All categories</option>
             {activeCategories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
           </select>
-          <select value={workStatusFilter} onChange={(event) => setWorkStatusFilter(event.target.value)} aria-label="Filter works by status">
-            <option value="all">All statuses</option>
-            <option value="open">Open</option>
-            <option value="completed">Completed</option>
-            <option value="overdue">Overdue</option>
-          </select>
-          <span>{visibleWorks.length} work item{visibleWorks.length === 1 ? "" : "s"}</span>
+          <span>{todayWorks.length} today · {openWorks.length} open</span>
         </div>
 
-        <div className="work-list">
-          {visibleWorks.length === 0 ? (
-            <div className="empty-state">
-              <span>＋</span>
-              <h3>No work matches this filter</h3>
-              <p>{isAdmin ? "Add the next site activity or reset the filters." : "Try another category or status."}</p>
-              {isAdmin && <button className="primary-button" type="button" onClick={openNewWork}>Add work</button>}
-            </div>
-          ) : visibleWorks.map((work) => {
-            const category = categoryById[work.categoryId];
-            const status = workStatus(work);
-            return (
-              <article className="work-card" key={work.id}>
-                <div className={`status-dot ${status.toLowerCase()}`} />
-                <div className="work-card-copy">
-                  <div className="task-meta">
-                    <span>{category?.icon || "•"} {category?.name || "Uncategorised"}</span>
-                    <span className={`status-badge ${status.toLowerCase()}`}>{status}</span>
-                    {work.entryType !== "Work" && <span className={`report-entry-badge ${work.entryType.toLowerCase()}`}>{work.entryType} entry</span>}
-                  </div>
-                  <h3>{work.title}</h3>
-                  {work.notes && <p>{work.notes}</p>}
-                  <div className="work-details">
-                    <span>▣ Work date: {formatDate(work.workDate)}</span>
-                    <span>◷ Deadline: {formatDate(work.deadline)}</span>
-                    <span>👤 {work.owner || "Not assigned"}</span>
-                    {work.entryType !== "Work" && <span>₹ {formatMoney(work.amount)}</span>}
-                    {work.entryType === "Credit" && (
-                      <span>From: {shareholderById[work.creditShareholderId]?.name || "Other"}</span>
-                    )}
-                  </div>
-                </div>
-                {isAdmin && (
-                  <div className="work-card-actions">
-                    <button className="small-button" type="button" onClick={() => toggleWorkCompleted(work)}>
-                      {work.isCompleted ? "Reopen" : "Mark complete"}
-                    </button>
-                    <button className="secondary-task-button" type="button" onClick={() => openEditWork(work)}>Edit</button>
-                    <button className="delete-button" type="button" onClick={() => deleteWork(work)}>Delete</button>
-                  </div>
-                )}
-              </article>
-            );
-          })}
+        <div className="work-list today-work-list">
+          {renderWorkList(
+            todayWorks,
+            "No work added for today",
+            isAdmin ? "Use Add work to record today’s site activity." : "No site activity is dated today.",
+            true
+          )}
+        </div>
+
+        <div className="work-subsection-heading">
+          <div>
+            <span className="eyebrow">Pending work register</span>
+            <h2>Open works</h2>
+            <p>All incomplete works, sorted from newest work date to oldest.</p>
+          </div>
+          <span className="open-work-count">{openWorks.length} pending</span>
+        </div>
+
+        <div className="work-list open-work-list">
+          {renderWorkList(
+            openWorks,
+            "No open work",
+            "Every recorded work item has been completed."
+          )}
         </div>
       </section>
 
@@ -1636,7 +1728,7 @@ export default function Home() {
             <div>
               <span className="eyebrow">Workbook sheet 2</span>
               <h2>Final Transaction Register</h2>
-              <p>Sorted by date · Reporting period: {formatDate(report.periodStart)} to {formatDate(report.periodEnd)}</p>
+              <p>Click any column heading to sort · Reporting period: {formatDate(report.periodStart)} to {formatDate(report.periodEnd)}</p>
             </div>
             <div className="transaction-title-actions">
               <span className="transaction-count-pill">{filteredTransactions.length} records</span>
@@ -1715,14 +1807,46 @@ export default function Home() {
             <table className="transaction-table">
               <thead>
                 <tr>
-                  <th>Sl. No.</th>
-                  <th>Date</th>
-                  <th>Month</th>
-                  <th>Type</th>
-                  <th>Description</th>
-                  <th>Category</th>
-                  <th>Amount (₹)</th>
-                  <th>Net Effect (₹)</th>
+                  <th>
+                    <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("serial", "asc")}>
+                      <span>Sl. No.</span><b>{transactionSortIcon("serial")}</b>
+                    </button>
+                  </th>
+                  <th>
+                    <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("date", "asc")}>
+                      <span>Date</span><b>{transactionSortIcon("date")}</b>
+                    </button>
+                  </th>
+                  <th>
+                    <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("month", "asc")}>
+                      <span>Month</span><b>{transactionSortIcon("month")}</b>
+                    </button>
+                  </th>
+                  <th>
+                    <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("type", "asc")}>
+                      <span>Type</span><b>{transactionSortIcon("type")}</b>
+                    </button>
+                  </th>
+                  <th>
+                    <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("description", "asc")}>
+                      <span>Description</span><b>{transactionSortIcon("description")}</b>
+                    </button>
+                  </th>
+                  <th>
+                    <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("category", "asc")}>
+                      <span>Category</span><b>{transactionSortIcon("category")}</b>
+                    </button>
+                  </th>
+                  <th>
+                    <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("amount", "desc")}>
+                      <span>Amount (₹)</span><b>{transactionSortIcon("amount")}</b>
+                    </button>
+                  </th>
+                  <th>
+                    <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("net", "desc")}>
+                      <span>Net Effect (₹)</span><b>{transactionSortIcon("net")}</b>
+                    </button>
+                  </th>
                   {isAdmin && <th className="transaction-action-heading">Edit</th>}
                 </tr>
               </thead>
