@@ -3272,3 +3272,8 @@ textarea { min-height: 88px; resize: vertical; }
     flex-direction: column;
   }
 }
+
+/* MECARDEE_DYNAMIC_CREDIT_SOURCE_FILTER_V1 */
+.transaction-filter-panel label:nth-of-type(4) select {
+  min-width: 0;
+}

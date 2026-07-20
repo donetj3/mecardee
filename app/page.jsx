@@ -1,5 +1,7 @@
 "use client";
 
+// MECARDEE_DYNAMIC_CREDIT_SOURCE_FILTER_V1
+
 // MECARDEE_TODAY_OPEN_WORK_SORT_V1
 
 // MECARDEE_INLINE_TRANSACTION_EDIT_V1
@@ -528,10 +530,24 @@ export default function Home() {
       if (transactionFilters.from && transaction.date < transactionFilters.from) return false;
       if (transactionFilters.to && transaction.date > transactionFilters.to) return false;
       if (transactionFilters.type !== "all" && transaction.type !== transactionFilters.type) return false;
-      if (
-        transactionFilters.category !== "all" &&
-        (transaction.type === "Credit" || transaction.categoryId !== transactionFilters.category)
-      ) return false;
+      if (transactionFilters.category !== "all") {
+        if (transactionFilters.category.startsWith("credit:")) {
+          if (transaction.type !== "Credit") return false;
+
+          const selectedCreditSource = transactionFilters.category.slice("credit:".length);
+
+          if (selectedCreditSource === "other") {
+            if (transaction.shareholderId) return false;
+          } else if (transaction.shareholderId !== selectedCreditSource) {
+            return false;
+          }
+        } else if (
+          transaction.type !== "Expense" ||
+          transaction.categoryId !== transactionFilters.category
+        ) {
+          return false;
+        }
+      }
       if (search) {
         const haystack = `${transaction.description} ${transaction.notes} ${categoryById[transaction.categoryId]?.name || ""} ${shareholderById[transaction.shareholderId]?.name || ""}`.toLowerCase();
         if (!haystack.includes(search)) return false;
@@ -950,7 +966,16 @@ export default function Home() {
     if (transactionFilters.type !== "all") parts.push(`Type: ${transactionFilters.type}`);
 
     if (transactionFilters.category !== "all") {
-      parts.push(`Category: ${categoryById[transactionFilters.category]?.name || "Selected category"}`);
+      if (transactionFilters.category.startsWith("credit:")) {
+        const selectedCreditSource = transactionFilters.category.slice("credit:".length);
+        const sourceName = selectedCreditSource === "other"
+          ? "Other"
+          : shareholderById[selectedCreditSource]?.name || "Selected source";
+
+        parts.push(`Credit source: ${sourceName}`);
+      } else {
+        parts.push(`Category: ${categoryById[transactionFilters.category]?.name || "Selected category"}`);
+      }
     }
 
     if (transactionFilters.search.trim()) {
@@ -1761,16 +1786,45 @@ export default function Home() {
               <input type="date" value={transactionFilters.to} onChange={(event) => setTransactionFilters({ ...transactionFilters, to: event.target.value })} />
             </label>
             <label>Type
-              <select value={transactionFilters.type} onChange={(event) => setTransactionFilters({ ...transactionFilters, type: event.target.value })}>
+              <select
+                value={transactionFilters.type}
+                onChange={(event) => setTransactionFilters({
+                  ...transactionFilters,
+                  type: event.target.value,
+                  category: "all"
+                })}
+              >
                 <option value="all">All types</option>
                 <option value="Expense">Expense</option>
                 <option value="Credit">Credit</option>
               </select>
             </label>
-            <label>Category
-              <select value={transactionFilters.category} onChange={(event) => setTransactionFilters({ ...transactionFilters, category: event.target.value })}>
-                <option value="all">All categories</option>
-                {activeCategories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
+            <label>{transactionFilters.type === "Credit" ? "Credit received from" : "Category"}
+              <select
+                value={transactionFilters.category}
+                onChange={(event) => setTransactionFilters({
+                  ...transactionFilters,
+                  category: event.target.value
+                })}
+              >
+                <option value="all">
+                  {transactionFilters.type === "Credit" ? "All credit sources" : "All categories"}
+                </option>
+
+                {transactionFilters.type === "Credit" ? (
+                  <>
+                    {(data?.shareholders || []).map((shareholder) => (
+                      <option value={`credit:${shareholder.id}`} key={shareholder.id}>
+                        Credit - {shareholder.name}
+                      </option>
+                    ))}
+                    <option value="credit:other">Credit - Other</option>
+                  </>
+                ) : (
+                  activeCategories.map((category) => (
+                    <option value={category.id} key={category.id}>{category.name}</option>
+                  ))
+                )}
               </select>
             </label>
             <label className="search-filter">Search
