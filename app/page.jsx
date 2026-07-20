@@ -1,5 +1,9 @@
 "use client";
 
+// MECARDEE_CLEAR_NET_POSITION_V1
+
+// MECARDEE_SECURE_DELETED_ENTRIES_V1
+
 // MECARDEE_DYNAMIC_CREDIT_SOURCE_FILTER_V1
 
 // MECARDEE_TODAY_OPEN_WORK_SORT_V1
@@ -285,6 +289,9 @@ export default function Home() {
   const [modal, setModal] = useState("");
   const [workDraft, setWorkDraft] = useState(null);
   const [transactionDraft, setTransactionDraft] = useState(null);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deletedTransactions, setDeletedTransactions] = useState([]);
+  const [deletedEntriesLoading, setDeletedEntriesLoading] = useState(false);
   const [activeCategory, setActiveCategory] = useState("all");
   const [transactionFilters, setTransactionFilters] = useState({
     from: "",
@@ -364,6 +371,54 @@ export default function Home() {
     }
   }, []);
 
+  const loadDeletedTransactions = useCallback(async (sessionToken) => {
+    if (!sessionToken) {
+      setDeletedTransactions([]);
+      return;
+    }
+
+    setDeletedEntriesLoading(true);
+
+    const { data: result, error } = await supabase.rpc(
+      "mecardee_admin_list_deleted_transactions",
+      { p_session_token: sessionToken }
+    );
+
+    setDeletedEntriesLoading(false);
+
+    if (error) {
+      console.error("Deleted entries report failed:", error);
+      setDeletedTransactions([]);
+      return;
+    }
+
+    setDeletedTransactions((Array.isArray(result) ? result : []).map((row) => ({
+      id: row.id,
+      originalId: row.original_transaction_id,
+      sortOrder: Number(row.original_sort_order || 0),
+      date: row.txn_date,
+      type: row.txn_type,
+      description: row.description,
+      categoryId: row.category_id || "",
+      categoryName: row.category_name || "",
+      amount: Number(row.amount || 0),
+      notes: row.notes || "",
+      workId: row.work_id || null,
+      shareholderId: row.shareholder_id || null,
+      shareholderName: row.shareholder_name || "",
+      deletedBy: row.deleted_by_username || "delvin",
+      deletedAt: row.deleted_at
+    })));
+  }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn || !isAdmin || !currentUser?.token) {
+      setDeletedTransactions([]);
+      return;
+    }
+
+    loadDeletedTransactions(currentUser.token);
+  }, [currentUser?.token, isAdmin, isLoggedIn, loadDeletedTransactions]);
   useEffect(() => {
     if (!isLoggedIn) return undefined;
 
@@ -616,6 +671,21 @@ export default function Home() {
     };
   }, [filteredTransactions]);
 
+  const deletedTransactionTotals = useMemo(() => {
+    const expenses = deletedTransactions
+      .filter((transaction) => transaction.type === "Expense")
+      .reduce((sum, transaction) => sum + transaction.amount, 0);
+    const credits = deletedTransactions
+      .filter((transaction) => transaction.type === "Credit")
+      .reduce((sum, transaction) => sum + transaction.amount, 0);
+
+    return {
+      expenses,
+      credits,
+      total: expenses + credits
+    };
+  }, [deletedTransactions]);
+
   const totalTransactionPages = Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE));
   const pagedTransactions = filteredTransactions.slice(
     (transactionPage - 1) * PAGE_SIZE,
@@ -667,6 +737,8 @@ export default function Home() {
     const token = currentUser?.token;
     window.sessionStorage.removeItem(USER_SESSION_KEY);
     setData(null);
+    setDeletedTransactions([]);
+    setDeletePassword("");
     setCurrentUser(null);
     setIsLoggedIn(false);
     setModal("");
@@ -833,15 +905,19 @@ export default function Home() {
   }
 
   function openEditTransaction(transaction) {
-    if (!isAdmin || transaction.type !== "Expense") return;
+    if (!isAdmin) return;
 
+    setDeletePassword("");
     setTransactionDraft({
       id: transaction.id,
+      type: transaction.type,
       date: transaction.date,
-      description: transaction.description,
+      description: transaction.description || "",
       categoryId: transaction.categoryId || activeCategories[0]?.id || "",
+      shareholderId: transaction.shareholderId || "",
       amount: transaction.amount,
-      notes: transaction.notes || ""
+      notes: transaction.notes || "",
+      workId: transaction.workId || null
     });
     setModal("transaction");
   }
@@ -850,20 +926,51 @@ export default function Home() {
     event.preventDefault();
     if (!transactionDraft) return;
 
-    const result = await adminRpc("mecardee_admin_update_transaction", {
+    const result = await adminRpc("mecardee_admin_update_transaction_v2", {
       p_id: transactionDraft.id,
       p_txn_date: transactionDraft.date,
       p_description: transactionDraft.description,
-      p_category_id: transactionDraft.categoryId,
+      p_category_id: transactionDraft.type === "Expense"
+        ? transactionDraft.categoryId
+        : null,
+      p_shareholder_id: transactionDraft.type === "Credit" && transactionDraft.shareholderId
+        ? transactionDraft.shareholderId
+        : null,
       p_amount: Number(transactionDraft.amount || 0),
       p_notes: transactionDraft.notes
-    }, "Transaction updated.");
+    }, `${transactionDraft.type} updated.`);
 
     if (result.ok) {
       setTransactionDraft(null);
+      setDeletePassword("");
       setModal("");
     }
   }
+
+  async function deleteTransaction() {
+    if (!transactionDraft || !isAdmin) return;
+
+    if (!deletePassword) {
+      notify("Enter Delvin’s admin password before deleting.");
+      return;
+    }
+
+    const description = transactionDraft.description || transactionDraft.type;
+    if (!window.confirm(`Move "${description}" to the Deleted Entries Report?`)) return;
+
+    const result = await adminRpc("mecardee_admin_delete_transaction", {
+      p_id: transactionDraft.id,
+      p_admin_password: deletePassword
+    }, "Entry moved to the Deleted Entries Report.");
+
+    if (result.ok) {
+      setTransactionDraft(null);
+      setDeletePassword("");
+      setModal("");
+      await loadDeletedTransactions(currentUser.token);
+    }
+  }
+
   async function saveWork(event) {
     event.preventDefault();
     if (!workDraft) return;
@@ -875,7 +982,7 @@ export default function Home() {
 
     const result = await adminRpc("mecardee_admin_save_work", {
       p_id: workDraft.id || null,
-      p_title: isCreditEntry ? `Credit - ${creditSourceName}` : workDraft.title,
+      p_title: workDraft.title,
       p_category_id: workDraft.categoryId,
       p_owner: creditSourceName,
       p_work_date: workDraft.workDate,
@@ -898,13 +1005,28 @@ export default function Home() {
   }
 
   async function deleteWork(work) {
-    if (!isAdmin || !window.confirm(`Delete "${work.title}"?`)) return;
-    const result = await adminRpc("mecardee_admin_delete_work", {
-      p_id: work.id
-    }, "Work deleted.");
+    if (!isAdmin) return;
 
-    if (result.ok && workDraft?.id === work.id) {
-      setWorkDraft(emptyWork(activeCategories));
+    const adminPassword = window.prompt(
+      `Enter Delvin’s admin password to delete "${work.title}".`
+    );
+
+    if (!adminPassword) return;
+
+    if (!window.confirm(`Move "${work.title}" to the Deleted Entries Report?`)) return;
+
+    const result = await adminRpc("mecardee_admin_delete_work_secure", {
+      p_id: work.id,
+      p_admin_password: adminPassword
+    }, "Work moved to the Deleted Entries Report.");
+
+    if (result.ok) {
+      if (workDraft?.id === work.id) {
+        setWorkDraft(work.entryType === "Credit"
+          ? emptyCredit(activeCategories)
+          : emptyWork(activeCategories));
+      }
+      await loadDeletedTransactions(currentUser.token);
     }
   }
 
@@ -948,13 +1070,15 @@ export default function Home() {
 
   function transactionDescriptionLabel(transaction) {
     if (transaction.type === "Credit") {
-      return `Credit - ${shareholderById[transaction.shareholderId]?.name || "Other"}`;
+      return transaction.description || "Credit entry";
     }
     return transaction.description;
   }
 
   function transactionCategoryLabel(transaction) {
-    if (transaction.type === "Credit") return "Credit";
+    if (transaction.type === "Credit") {
+      return `Credit - ${shareholderById[transaction.shareholderId]?.name || "Other"}`;
+    }
     return categoryById[transaction.categoryId]?.name || "Uncategorised";
   }
 
@@ -1508,9 +1632,24 @@ export default function Home() {
           <p>Recorded capital received</p>
         </article>
         <article className="summary-card">
-          <span className="summary-icon">−</span>
-          <div><small>Net expense</small><strong className="money-summary">{formatMoney(report.netExpense)}</strong></div>
-          <p>Expenses minus credits</p>
+          <span className="summary-icon">{report.netExpense < 0 ? "＋" : report.netExpense > 0 ? "−" : "="}</span>
+          <div>
+            <small>
+              {report.netExpense < 0
+                ? "Remaining credit"
+                : report.netExpense > 0
+                  ? "Net expense"
+                  : "Credit balance"}
+            </small>
+            <strong className="money-summary">{formatMoney(Math.abs(report.netExpense))}</strong>
+          </div>
+          <p>
+            {report.netExpense < 0
+              ? "Credits remaining after expenses"
+              : report.netExpense > 0
+                ? "Expenses exceed received credits"
+                : "Expenses and credits are balanced"}
+          </p>
         </article>
         <article className={`summary-card ${overdueWorks ? "danger-card" : ""}`}>
           <span className="summary-icon">✓</span>
@@ -1774,6 +1913,18 @@ export default function Home() {
                 >
                   {isExporting ? "Preparing…" : "Export PDF"}
                 </button>
+                {isAdmin && (
+                  <button
+                    className="secondary-button transaction-export-button deleted-report-button"
+                    type="button"
+                    onClick={() => {
+                      loadDeletedTransactions(currentUser.token);
+                      setModal("deleted");
+                    }}
+                  >
+                    Deleted entries
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1921,8 +2072,7 @@ export default function Home() {
                       </td>
                       {isAdmin && (
                         <td className="transaction-edit-cell">
-                          {transaction.type === "Expense" && (
-                            <button
+                          <button
                               className="transaction-edit-button"
                               type="button"
                               onClick={() => openEditTransaction(transaction)}
@@ -1931,7 +2081,6 @@ export default function Home() {
                             >
                               {"\u270E"}
                             </button>
-                          )}
                         </td>
                       )}
                     </tr>
@@ -2108,17 +2257,109 @@ export default function Home() {
           </form>
         </Modal>
       )}
+      {modal === "deleted" && isAdmin && (
+        <Modal title="Deleted Entries Report" eyebrow="Administrator audit report" onClose={() => setModal("")} wide>
+          <div className="deleted-report-page">
+            <div className="deleted-report-heading">
+              <div>
+                <span className="eyebrow">Password-protected deletion history</span>
+                <h3>{deletedTransactions.length} deleted entr{deletedTransactions.length === 1 ? "y" : "ies"}</h3>
+                <p>Entries are archived here after deletion and are removed from active financial totals.</p>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => loadDeletedTransactions(currentUser.token)}
+                disabled={deletedEntriesLoading}
+              >
+                {deletedEntriesLoading ? "Refreshing…" : "Refresh report"}
+              </button>
+            </div>
+
+            <div className="deleted-report-totals">
+              <article>
+                <small>Deleted entries</small>
+                <strong>{deletedTransactions.length}</strong>
+              </article>
+              <article>
+                <small>Deleted expenses</small>
+                <strong>{formatMoney(deletedTransactionTotals.expenses)}</strong>
+              </article>
+              <article>
+                <small>Deleted credits</small>
+                <strong>{formatMoney(deletedTransactionTotals.credits)}</strong>
+              </article>
+              <article>
+                <small>Total deleted amount</small>
+                <strong>{formatMoney(deletedTransactionTotals.total)}</strong>
+              </article>
+            </div>
+
+            <div className="responsive-table deleted-report-table-wrap">
+              <table className="deleted-report-table">
+                <thead>
+                  <tr>
+                    <th>Deleted on</th>
+                    <th>Entry date</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>Category / source</th>
+                    <th>Amount (₹)</th>
+                    <th>Deleted by</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deletedTransactions.map((transaction) => (
+                    <tr key={transaction.id}>
+                      <td>{transaction.deletedAt ? new Intl.DateTimeFormat("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit"
+                      }).format(new Date(transaction.deletedAt)) : "—"}</td>
+                      <td>{formatDate(transaction.date)}</td>
+                      <td><span className={`transaction-type ${transaction.type.toLowerCase()}`}>{transaction.type}</span></td>
+                      <td>
+                        <strong>{transaction.description}</strong>
+                        {transaction.notes && <small>{transaction.notes}</small>}
+                      </td>
+                      <td>
+                        {transaction.type === "Credit"
+                          ? `Credit - ${transaction.shareholderName || "Other"}`
+                          : transaction.categoryName || categoryById[transaction.categoryId]?.name || "Uncategorised"}
+                      </td>
+                      <td>{formatPlainMoney(transaction.amount)}</td>
+                      <td>{transaction.deletedBy}</td>
+                    </tr>
+                  ))}
+                  {!deletedEntriesLoading && deletedTransactions.length === 0 && (
+                    <tr>
+                      <td colSpan="7" className="empty-table-row">No entries have been deleted.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {modal === "transaction" && isAdmin && transactionDraft && (
-        <Modal title="Edit transaction" eyebrow="Administrator controls" onClose={() => {
-          setTransactionDraft(null);
-          setModal("");
-        }}>
+        <Modal
+          title={`Edit ${transactionDraft.type.toLowerCase()}`}
+          eyebrow="Administrator controls"
+          onClose={() => {
+            setTransactionDraft(null);
+            setDeletePassword("");
+            setModal("");
+          }}
+        >
           <form className="transaction-edit-form" onSubmit={saveTransaction}>
             <div className="transaction-edit-intro">
-              <span className="eyebrow">Expense register</span>
+              <span className="eyebrow">{transactionDraft.type} register</span>
               <h3>{transactionDraft.description}</h3>
-              <p>Change the category or correct the transaction details. The filtered report updates automatically after saving.</p>
+              <p>Correct this entry or move it to the password-protected Deleted Entries Report.</p>
             </div>
 
             <label className="full-field">Description
@@ -2126,7 +2367,10 @@ export default function Home() {
                 autoFocus
                 required
                 value={transactionDraft.description}
-                onChange={(event) => setTransactionDraft({ ...transactionDraft, description: event.target.value })}
+                onChange={(event) => setTransactionDraft({
+                  ...transactionDraft,
+                  description: event.target.value
+                })}
               />
             </label>
 
@@ -2135,21 +2379,44 @@ export default function Home() {
                 type="date"
                 required
                 value={transactionDraft.date}
-                onChange={(event) => setTransactionDraft({ ...transactionDraft, date: event.target.value })}
+                onChange={(event) => setTransactionDraft({
+                  ...transactionDraft,
+                  date: event.target.value
+                })}
               />
             </label>
 
-            <label>Category
-              <select
-                required
-                value={transactionDraft.categoryId}
-                onChange={(event) => setTransactionDraft({ ...transactionDraft, categoryId: event.target.value })}
-              >
-                {activeCategories.map((category) => (
-                  <option value={category.id} key={category.id}>{category.name}</option>
-                ))}
-              </select>
-            </label>
+            {transactionDraft.type === "Expense" ? (
+              <label>Category
+                <select
+                  required
+                  value={transactionDraft.categoryId}
+                  onChange={(event) => setTransactionDraft({
+                    ...transactionDraft,
+                    categoryId: event.target.value
+                  })}
+                >
+                  {activeCategories.map((category) => (
+                    <option value={category.id} key={category.id}>{category.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label>Credit received from
+                <select
+                  value={transactionDraft.shareholderId}
+                  onChange={(event) => setTransactionDraft({
+                    ...transactionDraft,
+                    shareholderId: event.target.value
+                  })}
+                >
+                  <option value="">Other</option>
+                  {(data?.shareholders || []).map((shareholder) => (
+                    <option value={shareholder.id} key={shareholder.id}>{shareholder.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <label className="full-field">Amount (₹)
               <input
@@ -2171,21 +2438,50 @@ export default function Home() {
             <label className="full-field">Notes
               <textarea
                 value={transactionDraft.notes}
-                onChange={(event) => setTransactionDraft({ ...transactionDraft, notes: event.target.value })}
+                onChange={(event) => setTransactionDraft({
+                  ...transactionDraft,
+                  notes: event.target.value
+                })}
                 placeholder="Optional notes"
               />
             </label>
 
+            <div className="transaction-delete-zone full-field">
+              <div>
+                <strong>Delete this entry</strong>
+                <p>Enter Delvin’s current admin password. The entry will remain visible in the Deleted Entries Report.</p>
+              </div>
+              <label>Admin password
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={deletePassword}
+                  onChange={(event) => setDeletePassword(event.target.value)}
+                  placeholder="Required only for deletion"
+                />
+              </label>
+              <button
+                className="delete-button secure-delete-button"
+                type="button"
+                onClick={deleteTransaction}
+                disabled={isSyncing || !deletePassword}
+              >
+                Delete entry
+              </button>
+            </div>
+
             <div className="modal-actions full-field">
               <button className="secondary-button" type="button" onClick={() => {
                 setTransactionDraft(null);
+                setDeletePassword("");
                 setModal("");
               }}>Cancel</button>
-              <button className="primary-button" type="submit" disabled={isSyncing}>Save transaction</button>
+              <button className="primary-button" type="submit" disabled={isSyncing}>Save changes</button>
             </div>
           </form>
         </Modal>
       )}
+
       {modal === "credit" && isAdmin && workDraft && (
         <Modal title="Credit entries" eyebrow="Administrator controls" onClose={() => setModal("")} wide>
           <div className="work-editor-layout">
@@ -2194,8 +2490,17 @@ export default function Home() {
                 <span className="eyebrow">{workDraft.id ? "Edit selected credit" : "Add credit"}</span>
                 <h3>{workDraft.id ? workDraft.title : "New credit entry"}</h3>
               </div>
+              <label className="full-field">Description
+                <input
+                  autoFocus
+                  required
+                  value={workDraft.title}
+                  onChange={(event) => setWorkDraft({ ...workDraft, title: event.target.value })}
+                  placeholder="Enter the reason or details for this credit"
+                />
+              </label>
               <div className="credit-description-preview full-field">
-                <span>Transaction description</span>
+                <span>Report category</span>
                 <strong>Credit - {shareholderById[workDraft.creditShareholderId]?.name || "Other"}</strong>
               </div>
               <label>Credit date

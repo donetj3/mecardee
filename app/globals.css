@@ -3277,3 +3277,170 @@ textarea { min-height: 88px; resize: vertical; }
 .transaction-filter-panel label:nth-of-type(4) select {
   min-width: 0;
 }
+
+/* MECARDEE_SECURE_DELETED_ENTRIES_V1 */
+.deleted-report-button {
+  white-space: nowrap;
+}
+
+.transaction-delete-zone {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) minmax(210px, .8fr) auto;
+  align-items: end;
+  gap: 13px;
+  margin-top: 5px;
+  padding: 16px;
+  border: 1px solid rgba(194, 48, 42, .25);
+  border-radius: 13px;
+  background: rgba(194, 48, 42, .055);
+}
+
+.transaction-delete-zone strong {
+  color: #991f1b;
+}
+
+.transaction-delete-zone p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.transaction-delete-zone label {
+  margin: 0;
+}
+
+.secure-delete-button {
+  min-height: 44px;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+.secure-delete-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.deleted-report-page {
+  display: grid;
+  gap: 18px;
+}
+
+.deleted-report-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.deleted-report-heading h3 {
+  margin: 5px 0;
+}
+
+.deleted-report-heading p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.deleted-report-totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.deleted-report-totals article {
+  display: grid;
+  gap: 6px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.deleted-report-totals small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .45px;
+  text-transform: uppercase;
+}
+
+.deleted-report-totals strong {
+  color: var(--deep);
+  font-size: 19px;
+}
+
+.deleted-report-table-wrap {
+  max-height: 55vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.deleted-report-table {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: collapse;
+}
+
+.deleted-report-table th,
+.deleted-report-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  font-size: 11px;
+}
+
+.deleted-report-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: .45px;
+  text-transform: uppercase;
+}
+
+.deleted-report-table td strong,
+.deleted-report-table td small {
+  display: block;
+}
+
+.deleted-report-table td small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .transaction-delete-zone {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .secure-delete-button {
+    width: 100%;
+  }
+
+  .deleted-report-totals {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .deleted-report-heading {
+    flex-direction: column;
+  }
+
+  .deleted-report-heading .secondary-button {
+    width: 100%;
+  }
+
+  .deleted-report-totals {
+    grid-template-columns: 1fr;
+  }
+}
