@@ -1,8 +1,12 @@
 "use client";
 
+// MECARDEE_PAID_BY_PARTNER_CONTRIBUTIONS_V1
+
 // MECARDEE_CLEAR_NET_POSITION_V1
 
 // MECARDEE_SECURE_DELETED_ENTRIES_V1
+
+// MECARDEE_CREDIT_DESCRIPTION_CATEGORY_V1
 
 // MECARDEE_DYNAMIC_CREDIT_SOURCE_FILTER_V1
 
@@ -24,6 +28,8 @@ pdfMake.vfs = pdfFonts;
 // MECARDEE_WORK_EDITOR_USABILITY_V2
 const USER_SESSION_KEY = "mecardee-user-session";
 const PAGE_SIZE = 25;
+const PARTNER_NAMES = ["Delvin", "Dantees", "Dennis"];
+
 
 const pad = (value) => String(value).padStart(2, "0");
 
@@ -147,6 +153,7 @@ function mapWork(row) {
     entryType: row.entry_type || "Work",
     amount: Number(row.amount || row.actual_cost || 0),
     creditShareholderId: row.credit_shareholder_id || "",
+    paidById: row.paid_by || "",
     notes: row.notes || "",
     sortOrder: Number(row.sort_order || 0)
   };
@@ -163,7 +170,8 @@ function mapTransaction(row) {
     amount: Number(row.amount || 0),
     notes: row.notes || "",
     workId: row.work_id || null,
-    shareholderId: row.shareholder_id || null
+    shareholderId: row.shareholder_id || null,
+    paidById: row.paid_by || null
   };
 }
 
@@ -259,6 +267,7 @@ function emptyWork(categories) {
     entryType: "Expense",
     amount: 0,
     creditShareholderId: "",
+    paidById: "",
     notes: "",
     sortOrder: 0
   };
@@ -406,6 +415,8 @@ export default function Home() {
       workId: row.work_id || null,
       shareholderId: row.shareholder_id || null,
       shareholderName: row.shareholder_name || "",
+      paidById: row.paid_by || null,
+      paidByName: row.paid_by_name || "",
       deletedBy: row.deleted_by_username || "delvin",
       deletedAt: row.deleted_at
     })));
@@ -449,6 +460,20 @@ export default function Home() {
     () => Object.fromEntries((data?.shareholders || []).map((shareholder) => [shareholder.id, shareholder])),
     [data]
   );
+
+  const partnerShareholders = useMemo(() => {
+    const byName = Object.fromEntries(
+      (data?.shareholders || []).map((shareholder) => [shareholder.name.trim().toLowerCase(), shareholder])
+    );
+
+    return PARTNER_NAMES
+      .map((name) => byName[name.toLowerCase()])
+      .filter(Boolean);
+  }, [data]);
+
+  const delvinPartnerId = partnerShareholders.find(
+    (shareholder) => shareholder.name.trim().toLowerCase() === "delvin"
+  )?.id || "";
 
   const report = useMemo(() => {
     const transactions = data?.transactions || [];
@@ -501,13 +526,103 @@ export default function Home() {
     };
   }, [activeCategories, data]);
 
+  const partnerContributionReport = useMemo(() => {
+    const transactions = data?.transactions || [];
+    const partnerByName = Object.fromEntries(
+      partnerShareholders.map((partner) => [partner.name.trim().toLowerCase(), partner])
+    );
+    const partnerIds = new Set(partnerShareholders.map((partner) => partner.id));
+
+    const recordedCashCredits = Object.fromEntries(
+      partnerShareholders.map((partner) => [partner.id, 0])
+    );
+    const directExpensesPaid = Object.fromEntries(
+      partnerShareholders.map((partner) => [partner.id, 0])
+    );
+
+    transactions.forEach((transaction) => {
+      if (
+        transaction.type === "Credit" &&
+        transaction.shareholderId &&
+        partnerIds.has(transaction.shareholderId)
+      ) {
+        recordedCashCredits[transaction.shareholderId] =
+          Number(recordedCashCredits[transaction.shareholderId] || 0) + transaction.amount;
+      }
+
+      if (
+        transaction.type === "Expense" &&
+        transaction.paidById &&
+        partnerIds.has(transaction.paidById)
+      ) {
+        directExpensesPaid[transaction.paidById] =
+          Number(directExpensesPaid[transaction.paidById] || 0) + transaction.amount;
+      }
+    });
+
+    const delvin = partnerByName.delvin;
+    const dantees = partnerByName.dantees;
+    const dennis = partnerByName.dennis;
+    const totalRecordedPartnerCredits = Object.values(recordedCashCredits)
+      .reduce((sum, amount) => sum + Number(amount || 0), 0);
+    const danteesDirect = dantees ? Number(directExpensesPaid[dantees.id] || 0) : 0;
+    const dennisDirect = dennis ? Number(directExpensesPaid[dennis.id] || 0) : 0;
+    const rawDelvinUnrecorded =
+      report.totalExpenses -
+      totalRecordedPartnerCredits -
+      danteesDirect -
+      dennisDirect;
+    const delvinUnrecorded = Math.max(0, rawDelvinUnrecorded);
+
+    const rows = PARTNER_NAMES.map((partnerName) => {
+      const partner = partnerByName[partnerName.toLowerCase()];
+      const cashCredits = partner ? Number(recordedCashCredits[partner.id] || 0) : 0;
+      const directExpenses = partner ? Number(directExpensesPaid[partner.id] || 0) : 0;
+      const unrecorded = partnerName === "Delvin" ? delvinUnrecorded : 0;
+
+      return {
+        id: partner?.id || partnerName.toLowerCase(),
+        name: partnerName,
+        recordedCashCredits: cashCredits,
+        directExpensesPaid: directExpenses,
+        calculatedUnrecordedContribution: unrecorded,
+        totalContribution: cashCredits + directExpenses + unrecorded
+      };
+    });
+
+    // Delvin's total follows the requested accounting rule and must not add
+    // his informational direct-expense column a second time.
+    const delvinRow = rows.find((row) => row.name === "Delvin");
+    if (delvinRow) {
+      delvinRow.totalContribution =
+        delvinRow.recordedCashCredits +
+        delvinRow.calculatedUnrecordedContribution;
+    }
+
+    return {
+      rows,
+      totalRecordedPartnerCredits,
+      rawDelvinUnrecorded,
+      delvinUnrecorded,
+      hasExcessRecordedCredits: rawDelvinUnrecorded < 0,
+      totalContribution: rows.reduce((sum, row) => sum + row.totalContribution, 0)
+    };
+  }, [data, partnerShareholders, report.totalExpenses]);
+
+  const partnerContributionById = useMemo(
+    () => Object.fromEntries(
+      partnerContributionReport.rows.map((row) => [row.id, row])
+    ),
+    [partnerContributionReport.rows]
+  );
+
   const categoryStats = useMemo(
     () => Object.fromEntries(report.categories.map((category) => [category.id, category])),
     [report.categories]
   );
 
   const totalCategoryBudget = activeCategories.reduce((sum, category) => sum + category.budget, 0);
-  const totalShareAmount = (data?.shareholders || []).reduce((sum, shareholder) => sum + shareholder.amount, 0);
+  const totalShareAmount = partnerContributionReport.totalContribution;
   const budgetRemaining = totalCategoryBudget - report.totalExpenses;
   const overallCategoryCompletion = activeCategories.length
     ? Math.round(activeCategories.reduce((sum, category) => sum + category.completion, 0) / activeCategories.length)
@@ -604,7 +719,7 @@ export default function Home() {
         }
       }
       if (search) {
-        const haystack = `${transaction.description} ${transaction.notes} ${categoryById[transaction.categoryId]?.name || ""} ${shareholderById[transaction.shareholderId]?.name || ""}`.toLowerCase();
+        const haystack = `${transaction.description} ${transaction.notes} ${categoryById[transaction.categoryId]?.name || ""} ${shareholderById[transaction.shareholderId]?.name || ""} ${shareholderById[transaction.paidById]?.name || ""}`.toLowerCase();
         if (!haystack.includes(search)) return false;
       }
       return true;
@@ -624,6 +739,7 @@ export default function Home() {
           ? "Credit"
           : categoryById[transaction.categoryId]?.name || "Uncategorised";
       }
+      if (key === "paidBy") return transactionPaidByLabel(transaction);
       return "";
     };
 
@@ -885,7 +1001,10 @@ export default function Home() {
   }
 
   function openNewWork() {
-    setWorkDraft(emptyWork(activeCategories));
+    setWorkDraft({
+      ...emptyWork(activeCategories),
+      paidById: delvinPartnerId
+    });
     setModal("works");
   }
 
@@ -898,7 +1017,10 @@ export default function Home() {
     const nextDraft = {
       ...work,
       entryType: work.entryType === "Credit" ? "Credit" : "Expense",
-      creditShareholderId: work.creditShareholderId || ""
+      creditShareholderId: work.creditShareholderId || "",
+      paidById: work.entryType === "Credit"
+        ? ""
+        : work.paidById || delvinPartnerId
     };
     setWorkDraft(nextDraft);
     setModal(nextDraft.entryType === "Credit" ? "credit" : "works");
@@ -915,6 +1037,9 @@ export default function Home() {
       description: transaction.description || "",
       categoryId: transaction.categoryId || activeCategories[0]?.id || "",
       shareholderId: transaction.shareholderId || "",
+      paidById: transaction.type === "Expense"
+        ? transaction.paidById || delvinPartnerId
+        : "",
       amount: transaction.amount,
       notes: transaction.notes || "",
       workId: transaction.workId || null
@@ -926,7 +1051,7 @@ export default function Home() {
     event.preventDefault();
     if (!transactionDraft) return;
 
-    const result = await adminRpc("mecardee_admin_update_transaction_v2", {
+    const result = await adminRpc("mecardee_admin_update_transaction_v3", {
       p_id: transactionDraft.id,
       p_txn_date: transactionDraft.date,
       p_description: transactionDraft.description,
@@ -935,6 +1060,9 @@ export default function Home() {
         : null,
       p_shareholder_id: transactionDraft.type === "Credit" && transactionDraft.shareholderId
         ? transactionDraft.shareholderId
+        : null,
+      p_paid_by: transactionDraft.type === "Expense"
+        ? transactionDraft.paidById
         : null,
       p_amount: Number(transactionDraft.amount || 0),
       p_notes: transactionDraft.notes
@@ -993,6 +1121,7 @@ export default function Home() {
       p_credit_shareholder_id: isCreditEntry && workDraft.creditShareholderId
         ? workDraft.creditShareholderId
         : null,
+      p_paid_by: isCreditEntry ? null : workDraft.paidById,
       p_notes: workDraft.notes,
       p_sort_order: Number(workDraft.sortOrder || 0)
     }, workDraft.id
@@ -1000,7 +1129,7 @@ export default function Home() {
       : isCreditEntry ? "Credit added." : "Today’s work added.");
 
     if (result.ok) {
-      setWorkDraft(isCreditEntry ? emptyCredit(activeCategories) : emptyWork(activeCategories));
+      setWorkDraft(isCreditEntry ? emptyCredit(activeCategories) : { ...emptyWork(activeCategories), paidById: delvinPartnerId });
     }
   }
 
@@ -1024,7 +1153,7 @@ export default function Home() {
       if (workDraft?.id === work.id) {
         setWorkDraft(work.entryType === "Credit"
           ? emptyCredit(activeCategories)
-          : emptyWork(activeCategories));
+          : { ...emptyWork(activeCategories), paidById: delvinPartnerId });
       }
       await loadDeletedTransactions(currentUser.token);
     }
@@ -1044,6 +1173,9 @@ export default function Home() {
       p_credit_shareholder_id: work.entryType === "Credit" && work.creditShareholderId
         ? work.creditShareholderId
         : null,
+      p_paid_by: work.entryType === "Credit"
+        ? null
+        : work.paidById || delvinPartnerId,
       p_notes: work.notes,
       p_sort_order: work.sortOrder
     }, work.isCompleted ? "Work reopened." : "Work marked complete.");
@@ -1077,9 +1209,14 @@ export default function Home() {
 
   function transactionCategoryLabel(transaction) {
     if (transaction.type === "Credit") {
-      return `Credit - ${shareholderById[transaction.shareholderId]?.name || "Other"}`;
+      return `Credit - ${shareholderById[transaction.shareholderId]?.name || "Unassigned"}`;
     }
     return categoryById[transaction.categoryId]?.name || "Uncategorised";
+  }
+
+  function transactionPaidByLabel(transaction) {
+    if (transaction.type !== "Expense") return "—";
+    return shareholderById[transaction.paidById]?.name || "Delvin";
   }
 
   function transactionFilterSummary() {
@@ -1125,6 +1262,7 @@ export default function Home() {
         transaction.type,
         transactionDescriptionLabel(transaction),
         transactionCategoryLabel(transaction),
+        transactionPaidByLabel(transaction),
         { text: formatPlainMoney(transaction.amount), alignment: "right" },
         {
           text: `${transaction.type === "Credit" ? "+" : "-"}${formatPlainMoney(transaction.amount)}`,
@@ -1164,9 +1302,9 @@ export default function Home() {
           {
             table: {
               headerRows: 1,
-              widths: [28, 62, 48, 44, 145, 105, 68, 72],
+              widths: [25, 56, 44, 40, 120, 90, 55, 58, 62],
               body: [
-                ["Sl.", "Date", "Month", "Type", "Description", "Category", "Amount (₹)", "Net Effect (₹)"],
+                ["Sl.", "Date", "Month", "Type", "Description", "Category", "Paid by", "Amount (₹)", "Net Effect (₹)"],
                 ...rows
               ]
             },
@@ -1223,6 +1361,7 @@ export default function Home() {
           <td>${escapeCell(transaction.type)}</td>
           <td>${escapeCell(transactionDescriptionLabel(transaction))}</td>
           <td>${escapeCell(transactionCategoryLabel(transaction))}</td>
+          <td>${escapeCell(transactionPaidByLabel(transaction))}</td>
           <td class="number">${transaction.amount}</td>
           <td class="number">${transaction.type === "Credit" ? transaction.amount : -transaction.amount}</td>
           <td>${escapeCell(transaction.notes)}</td>
@@ -1247,16 +1386,16 @@ export default function Home() {
 </head>
 <body>
   <table>
-    <tr><td class="title" colspan="9">Mecardee - Filtered Transaction Register</td></tr>
-    <tr><td class="subtitle" colspan="9">${escapeCell(transactionFilterSummary())}</td></tr>
+    <tr><td class="title" colspan="10">Mecardee - Filtered Transaction Register</td></tr>
+    <tr><td class="subtitle" colspan="10">${escapeCell(transactionFilterSummary())}</td></tr>
     <tr>
       <td class="summary-label">Matching records</td><td class="summary-value">${filteredTransactions.length}</td>
       <td class="summary-label">Expenses</td><td class="summary-value">${filteredTransactionTotals.expenses}</td>
       <td class="summary-label">Credits</td><td class="summary-value">${filteredTransactionTotals.credits}</td>
       <td class="summary-label">Net effect</td><td class="summary-value">${filteredTransactionTotals.netEffect}</td>
-      <td></td>
+      <td></td><td></td>
     </tr>
-    <tr><td colspan="9"></td></tr>
+    <tr><td colspan="10"></td></tr>
     <tr>
       <th>Sl. No.</th>
       <th>Date</th>
@@ -1264,6 +1403,7 @@ export default function Home() {
       <th>Type</th>
       <th>Description</th>
       <th>Category</th>
+      <th>Paid by</th>
       <th>Amount (₹)</th>
       <th>Net Effect (₹)</th>
       <th>Notes</th>
@@ -1309,6 +1449,14 @@ export default function Home() {
         { text: formatPlainMoney(month.net), alignment: "right" }
       ]);
 
+      const partnerRows = partnerContributionReport.rows.map((row) => [
+        row.name,
+        { text: formatPlainMoney(row.recordedCashCredits), alignment: "right" },
+        { text: formatPlainMoney(row.directExpensesPaid), alignment: "right" },
+        { text: formatPlainMoney(row.calculatedUnrecordedContribution), alignment: "right" },
+        { text: formatPlainMoney(row.totalContribution), alignment: "right" }
+      ]);
+
       const transactionRows = data.transactions.map((transaction, index) => [
         index + 1,
         formatDate(transaction.date),
@@ -1316,6 +1464,7 @@ export default function Home() {
         transaction.type,
         transactionDescriptionLabel(transaction),
         transactionCategoryLabel(transaction),
+        transactionPaidByLabel(transaction),
         { text: formatPlainMoney(transaction.amount), alignment: "right" },
         {
           text: `${transaction.type === "Credit" ? "" : "-"}${formatPlainMoney(transaction.amount)}`,
@@ -1383,13 +1532,35 @@ export default function Home() {
             ],
             columnGap: 20
           },
+          {
+            stack: [
+              { text: "PARTNER CONTRIBUTION REPORT", style: "sectionTitle", margin: [0, 18, 0, 8] },
+              ...(partnerContributionReport.hasExcessRecordedCredits ? [{
+                text: "Warning: Recorded partner credits are higher than accounted business spending. Delvin's unrecorded contribution is shown as zero.",
+                color: "#a13b32",
+                fontSize: 8,
+                margin: [0, 0, 0, 8]
+              }] : []),
+              {
+                table: {
+                  headerRows: 1,
+                  widths: [75, 90, 90, 110, 90],
+                  body: [
+                    ["Partner", "Recorded Cash Credits", "Direct Expenses Paid", "Calculated Unrecorded", "Total Contribution"],
+                    ...partnerRows
+                  ]
+                },
+                layout: "lightHorizontalLines"
+              }
+            ]
+          },
           { text: "TRANSACTION REGISTER", style: "sectionTitle", pageBreak: "before" },
           {
             table: {
               headerRows: 1,
-              widths: [28, 58, 48, 42, 130, 105, 62, 68],
+              widths: [24, 52, 42, 38, 112, 82, 48, 56, 60],
               body: [
-                ["Sl.", "Date", "Month", "Type", "Description", "Category", "Amount (₹)", "Net Effect (₹)"],
+                ["Sl.", "Date", "Month", "Type", "Description", "Category", "Paid by", "Amount (₹)", "Net Effect (₹)"],
                 ...transactionRows
               ]
             },
@@ -1510,6 +1681,7 @@ export default function Home() {
               <span>▣ Work date: {formatDate(work.workDate)}</span>
               <span>◷ Deadline: {formatDate(work.deadline)}</span>
               <span>👤 {work.owner || "Not assigned"}</span>
+              <span>Paid by: {shareholderById[work.paidById]?.name || "Delvin"}</span>
               <span>₹ {formatMoney(work.amount)}</span>
             </div>
           </div>
@@ -1688,7 +1860,7 @@ export default function Home() {
             <strong>{formatMoney(budgetRemaining)}</strong>
           </article>
           <article className="budget-summary-card">
-            <small>Total shareholder shares</small>
+            <small>Total partner contributions</small>
             <strong>{formatMoney(totalShareAmount)}</strong>
           </article>
         </div>
@@ -1698,21 +1870,65 @@ export default function Home() {
             <span className="eyebrow">Capital contributors</span>
             <h3>Shareholders</h3>
           </div>
-          <small>Initial amounts are taken from the workbook credit register.</small>
+          <small>Calculated from recorded cash credits and direct expenses paid.</small>
         </div>
 
         <div className="shareholder-grid">
-          {data.shareholders.map((shareholder, index) => (
+          {partnerShareholders.map((shareholder, index) => (
             <article className="shareholder-card" key={shareholder.id}>
               <span className="share-index">{pad(index + 1)}</span>
               <div className="share-avatar">{shareholder.name.slice(0, 1).toUpperCase()}</div>
               <div>
-                <small>Shareholder</small>
+                <small>Partner contribution</small>
                 <strong>{shareholder.name}</strong>
-                <p>{formatMoney(shareholder.amount)}</p>
+                <p>{formatMoney(partnerContributionById[shareholder.id]?.totalContribution || 0)}</p>
               </div>
             </article>
           ))}
+        </div>
+
+        <div className="partner-contribution-report">
+          <div className="partner-contribution-heading">
+            <div>
+              <span className="eyebrow">Contribution reconciliation</span>
+              <h3>Partner contribution report</h3>
+            </div>
+            <small>Direct expenses are not entered again as credits.</small>
+          </div>
+
+          {partnerContributionReport.hasExcessRecordedCredits && (
+            <div className="contribution-warning" role="alert">
+              Recorded partner credits are higher than accounted business spending. Delvin’s calculated unrecorded contribution is shown as zero.
+            </div>
+          )}
+
+          <div className="responsive-table partner-contribution-table-wrap">
+            <table className="partner-contribution-table">
+              <thead>
+                <tr>
+                  <th>Partner</th>
+                  <th>Recorded Cash Credits</th>
+                  <th>Direct Expenses Paid</th>
+                  <th>Calculated Unrecorded Contribution</th>
+                  <th>Total Contribution</th>
+                </tr>
+              </thead>
+              <tbody>
+                {partnerContributionReport.rows.map((row) => (
+                  <tr key={row.id}>
+                    <td><strong>{row.name}</strong></td>
+                    <td>{formatMoney(row.recordedCashCredits)}</td>
+                    <td>{formatMoney(row.directExpensesPaid)}</td>
+                    <td>{formatMoney(row.calculatedUnrecordedContribution)}</td>
+                    <td><strong>{formatMoney(row.totalContribution)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="partner-contribution-note">
+            Delvin’s direct-expense column is informational. His total uses recorded credits plus the calculated unrecorded contribution, so the same spending is not counted twice.
+          </p>
         </div>
 
         <div className="category-budget-grid">
@@ -1877,10 +2093,43 @@ export default function Home() {
             </article>
           </div>
 
+          <article className="report-table-card partner-report-card">
+            <h3>PARTNER CONTRIBUTION REPORT</h3>
+            {partnerContributionReport.hasExcessRecordedCredits && (
+              <div className="contribution-warning" role="alert">
+                Recorded partner credits are higher than accounted business spending. Delvin’s calculated unrecorded contribution is shown as zero.
+              </div>
+            )}
+            <div className="responsive-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Partner</th>
+                    <th>Recorded Cash Credits</th>
+                    <th>Direct Expenses Paid</th>
+                    <th>Calculated Unrecorded Contribution</th>
+                    <th>Total Contribution</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {partnerContributionReport.rows.map((row) => (
+                    <tr key={row.id}>
+                      <td><strong>{row.name}</strong></td>
+                      <td>{formatPlainMoney(row.recordedCashCredits)}</td>
+                      <td>{formatPlainMoney(row.directExpensesPaid)}</td>
+                      <td>{formatPlainMoney(row.calculatedUnrecordedContribution)}</td>
+                      <td><strong>{formatPlainMoney(row.totalContribution)}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </article>
+
           <div className="report-basis">
             <strong>REPORT BASIS</strong>
             <p>
-              All corrected entries from the reviewed workbook are included. Circled amounts and amounts written beside “വരവ്” are treated as credits. Crossed-out amounts are excluded. Net Expense = Total Expenses - Total Credits.
+              All corrected entries from the reviewed workbook are included. Existing expenses without a payer are assigned to Delvin. Direct expenses paid by Dantees or Dennis count as partner contributions and must not be entered again as credits. Net Expense = Total Expenses - Total Credits.
             </p>
           </div>
         </div>
@@ -1964,12 +2213,12 @@ export default function Home() {
 
                 {transactionFilters.type === "Credit" ? (
                   <>
-                    {(data?.shareholders || []).map((shareholder) => (
+                    {partnerShareholders.map((shareholder) => (
                       <option value={`credit:${shareholder.id}`} key={shareholder.id}>
                         Credit - {shareholder.name}
                       </option>
                     ))}
-                    <option value="credit:other">Credit - Other</option>
+                    <option value="credit:other">Credit - Unassigned (legacy)</option>
                   </>
                 ) : (
                   activeCategories.map((category) => (
@@ -2043,6 +2292,11 @@ export default function Home() {
                     </button>
                   </th>
                   <th>
+                    <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("paidBy", "asc")}>
+                      <span>Paid by</span><b>{transactionSortIcon("paidBy")}</b>
+                    </button>
+                  </th>
+                  <th>
                     <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("amount", "desc")}>
                       <span>Amount (₹)</span><b>{transactionSortIcon("amount")}</b>
                     </button>
@@ -2066,6 +2320,7 @@ export default function Home() {
                       <td><span className={`transaction-type ${transaction.type.toLowerCase()}`}>{transaction.type}</span></td>
                       <td>{transactionDescriptionLabel(transaction)}</td>
                       <td>{transactionCategoryLabel(transaction)}</td>
+                      <td>{transactionPaidByLabel(transaction)}</td>
                       <td>{formatPlainMoney(transaction.amount)}</td>
                       <td className={transaction.type === "Credit" ? "credit-effect" : "expense-effect"}>
                         {transaction.type === "Credit" ? "+" : "-"}{formatPlainMoney(transaction.amount)}
@@ -2087,7 +2342,7 @@ export default function Home() {
                   );
                 })}
                 {pagedTransactions.length === 0 && (
-                  <tr><td colSpan={isAdmin ? 9 : 8} className="empty-table-row">No transactions match the selected filters.</td></tr>
+                  <tr><td colSpan={isAdmin ? 10 : 9} className="empty-table-row">No transactions match the selected filters.</td></tr>
                 )}
               </tbody>
             </table>
@@ -2304,6 +2559,7 @@ export default function Home() {
                     <th>Type</th>
                     <th>Description</th>
                     <th>Category / source</th>
+                    <th>Paid by</th>
                     <th>Amount (₹)</th>
                     <th>Deleted by</th>
                   </tr>
@@ -2326,16 +2582,17 @@ export default function Home() {
                       </td>
                       <td>
                         {transaction.type === "Credit"
-                          ? `Credit - ${transaction.shareholderName || "Other"}`
+                          ? `Credit - ${transaction.shareholderName || "Unassigned"}`
                           : transaction.categoryName || categoryById[transaction.categoryId]?.name || "Uncategorised"}
                       </td>
+                      <td>{transaction.type === "Expense" ? transaction.paidByName || "Delvin" : "—"}</td>
                       <td>{formatPlainMoney(transaction.amount)}</td>
                       <td>{transaction.deletedBy}</td>
                     </tr>
                   ))}
                   {!deletedEntriesLoading && deletedTransactions.length === 0 && (
                     <tr>
-                      <td colSpan="7" className="empty-table-row">No entries have been deleted.</td>
+                      <td colSpan="8" className="empty-table-row">No entries have been deleted.</td>
                     </tr>
                   )}
                 </tbody>
@@ -2387,31 +2644,48 @@ export default function Home() {
             </label>
 
             {transactionDraft.type === "Expense" ? (
-              <label>Category
-                <select
-                  required
-                  value={transactionDraft.categoryId}
-                  onChange={(event) => setTransactionDraft({
-                    ...transactionDraft,
-                    categoryId: event.target.value
-                  })}
-                >
-                  {activeCategories.map((category) => (
-                    <option value={category.id} key={category.id}>{category.name}</option>
-                  ))}
-                </select>
-              </label>
+              <>
+                <label>Category
+                  <select
+                    required
+                    value={transactionDraft.categoryId}
+                    onChange={(event) => setTransactionDraft({
+                      ...transactionDraft,
+                      categoryId: event.target.value
+                    })}
+                  >
+                    {activeCategories.map((category) => (
+                      <option value={category.id} key={category.id}>{category.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>Paid by
+                  <select
+                    required
+                    value={transactionDraft.paidById}
+                    onChange={(event) => setTransactionDraft({
+                      ...transactionDraft,
+                      paidById: event.target.value
+                    })}
+                  >
+                    {partnerShareholders.map((partner) => (
+                      <option value={partner.id} key={partner.id}>{partner.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
             ) : (
               <label>Credit received from
                 <select
+                  required
                   value={transactionDraft.shareholderId}
                   onChange={(event) => setTransactionDraft({
                     ...transactionDraft,
                     shareholderId: event.target.value
                   })}
                 >
-                  <option value="">Other</option>
-                  {(data?.shareholders || []).map((shareholder) => (
+                  <option value="" disabled>Select partner</option>
+                  {partnerShareholders.map((shareholder) => (
                     <option value={shareholder.id} key={shareholder.id}>{shareholder.name}</option>
                   ))}
                 </select>
@@ -2508,12 +2782,12 @@ export default function Home() {
               </label>
               <label>Credit received from
                 <select
-                  autoFocus
+                  required
                   value={workDraft.creditShareholderId}
                   onChange={(event) => setWorkDraft({ ...workDraft, creditShareholderId: event.target.value })}
                 >
-                  <option value="">Other</option>
-                  {data.shareholders.map((shareholder) => (
+                  <option value="" disabled>Select partner</option>
+                  {partnerShareholders.map((shareholder) => (
                     <option value={shareholder.id} key={shareholder.id}>{shareholder.name}</option>
                   ))}
                 </select>
@@ -2525,6 +2799,7 @@ export default function Home() {
                   min="0"
                   step="1"
                   required
+                  placeholder="Enter amount"
                   value={workDraft.amount === 0 ? "" : workDraft.amount}
                   onChange={(event) => setWorkDraft({ ...workDraft, amount: Number(event.target.value || 0) })}
                 />
@@ -2545,7 +2820,10 @@ export default function Home() {
                 {data.works.filter((work) => work.entryType === "Credit").map((work) => (
                   <button type="button" className={workDraft.id === work.id ? "selected" : ""} onClick={() => openEditWork(work)} key={work.id}>
                     <span>₹</span>
-                    <div><strong>Credit - {shareholderById[work.creditShareholderId]?.name || "Other"}</strong><small>{formatDate(work.workDate)} · ₹ {formatMoney(work.amount)}</small></div>
+                    <div>
+                      <strong>{work.title || "Credit entry"}</strong>
+                      <small>Credit - {shareholderById[work.creditShareholderId]?.name || "Other"} · {formatDate(work.workDate)} · ₹ {formatMoney(work.amount)}</small>
+                    </div>
                   </button>
                 ))}
                 {data.works.filter((work) => work.entryType === "Credit").length === 0 && (
@@ -2575,6 +2853,17 @@ export default function Home() {
               <label>Responsible person
                 <input value={workDraft.owner} onChange={(event) => setWorkDraft({ ...workDraft, owner: event.target.value })} placeholder="Owner / contractor" />
               </label>
+              <label>Paid by
+                <select
+                  required
+                  value={workDraft.paidById}
+                  onChange={(event) => setWorkDraft({ ...workDraft, paidById: event.target.value })}
+                >
+                  {partnerShareholders.map((partner) => (
+                    <option value={partner.id} key={partner.id}>{partner.name}</option>
+                  ))}
+                </select>
+              </label>
               <label>Work date
                 <input type="date" required value={workDraft.workDate} onChange={(event) => setWorkDraft({ ...workDraft, workDate: event.target.value })} />
               </label>
@@ -2588,6 +2877,7 @@ export default function Home() {
                   min="0"
                   step="1"
                   required
+                  placeholder="Enter amount"
                   value={workDraft.amount === 0 ? "" : workDraft.amount}
                   onChange={(event) => setWorkDraft({ ...workDraft, amount: Number(event.target.value || 0) })}
                 />
@@ -2601,7 +2891,7 @@ export default function Home() {
               </label>
               <div className="modal-actions full-field">
                 {workDraft.id && <button className="delete-button" type="button" onClick={() => deleteWork(workDraft)}>Delete</button>}
-                <button className="secondary-button" type="button" onClick={() => setWorkDraft(emptyWork(activeCategories))}>Clear</button>
+                <button className="secondary-button" type="button" onClick={() => setWorkDraft({ ...emptyWork(activeCategories), paidById: delvinPartnerId })}>Clear</button>
                 <button className="primary-button" type="submit" disabled={isSyncing}>{workDraft.id ? "Save work" : "Add work"}</button>
               </div>
             </form>
