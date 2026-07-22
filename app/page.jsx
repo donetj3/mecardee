@@ -1,5 +1,9 @@
 "use client";
 
+// MECARDEE_REPOSITION_SHAREHOLDERS_BUDGET_V1
+
+// MECARDEE_HIDE_WORKS_COMPLETED_CARD_V2
+
 // MECARDEE_AUTO_COMPLETE_WORK_V1
 
 // MECARDEE_PAID_BY_PARTNER_CONTRIBUTIONS_V1
@@ -1825,52 +1829,14 @@ export default function Home() {
                 : "Expenses and credits are balanced"}
           </p>
         </article>
-        <article className={`summary-card ${overdueWorks ? "danger-card" : ""}`}>
-          <span className="summary-icon">✓</span>
-          <div><small>Works completed</small><strong>{completedWorks}<em>/{data.works.length}</em></strong></div>
-          <p>{overdueWorks ? `${overdueWorks} overdue` : "No delayed work"}</p>
-        </article>
+        
       </section>
 
-      <section className="section-block budget-section" id="budget">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">Money control</span>
-            <h2>Category budgets & shares</h2>
-          </div>
-          {isAdmin && (
-            <div className="admin-action-row">
-              <button className="text-button" type="button" onClick={() => setModal("categories")}>Edit categories</button>
-
-
-              <button className="text-button" type="button" onClick={() => setModal("project")}>Project settings</button>
-            </div>
-          )}
-        </div>
-
-        <div className="budget-summary-grid">
-          <article className="budget-summary-card primary-budget">
-            <small>Total category budget</small>
-            <strong>{formatMoney(totalCategoryBudget)}</strong>
-          </article>
-          <article className="budget-summary-card">
-            <small>Actual amount spent</small>
-            <strong>{formatMoney(report.totalExpenses)}</strong>
-          </article>
-          <article className={`budget-summary-card ${budgetRemaining < 0 ? "over-budget" : ""}`}>
-            <small>Budget remaining</small>
-            <strong>{formatMoney(budgetRemaining)}</strong>
-          </article>
-          <article className="budget-summary-card">
-            <small>Total partner contributions</small>
-            <strong>{formatMoney(totalShareAmount)}</strong>
-          </article>
-        </div>
-
+      <section className="section-block shareholders-section" id="shareholders">
         <div className="shareholder-heading">
           <div>
             <span className="eyebrow">Capital contributors</span>
-            <h3>Shareholders</h3>
+            <h2>Shareholders</h2>
           </div>
           <small>Calculated from recorded cash credits and direct expenses paid.</small>
         </div>
@@ -1931,6 +1897,41 @@ export default function Home() {
           <p className="partner-contribution-note">
             Delvin’s direct-expense column is informational. His total uses recorded credits plus the calculated unrecorded contribution, so the same spending is not counted twice.
           </p>
+        </div>
+      </section>
+      <section className="section-block budget-section" id="budget">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Money control</span>
+            <h2>Category budgets & shares</h2>
+          </div>
+          {isAdmin && (
+            <div className="admin-action-row">
+              <button className="text-button" type="button" onClick={() => setModal("categories")}>Edit categories</button>
+
+
+              <button className="text-button" type="button" onClick={() => setModal("project")}>Project settings</button>
+            </div>
+          )}
+        </div>
+
+        <div className="budget-summary-grid">
+          <article className="budget-summary-card primary-budget">
+            <small>Total category budget</small>
+            <strong>{formatMoney(totalCategoryBudget)}</strong>
+          </article>
+          <article className="budget-summary-card">
+            <small>Actual amount spent</small>
+            <strong>{formatMoney(report.totalExpenses)}</strong>
+          </article>
+          <article className={`budget-summary-card ${budgetRemaining < 0 ? "over-budget" : ""}`}>
+            <small>Budget remaining</small>
+            <strong>{formatMoney(budgetRemaining)}</strong>
+          </article>
+          <article className="budget-summary-card">
+            <small>Total partner contributions</small>
+            <strong>{formatMoney(totalShareAmount)}</strong>
+          </article>
         </div>
 
         <div className="category-budget-grid">

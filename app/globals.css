@@ -3515,3 +3515,56 @@ textarea { min-height: 88px; resize: vertical; }
     padding: 15px;
   }
 }
+
+
+/* MECARDEE_REPOSITION_SHAREHOLDERS_BUDGET_V1 */
+
+/* Three remaining KPI cards should fill the complete desktop row. */
+@media (min-width: 901px) {
+  .summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Shareholders are now a standalone second dashboard section. */
+.shareholders-section {
+  margin-top: 58px;
+  margin-bottom: 32px;
+}
+
+.shareholders-section .shareholder-heading {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+.shareholders-section .shareholder-heading h2 {
+  margin: 5px 0 0;
+  font-family: "Manrope", sans-serif;
+  font-size: clamp(28px, 3vw, 38px);
+  letter-spacing: -1.4px;
+  line-height: 1.08;
+}
+
+.shareholders-section .shareholder-grid {
+  margin-bottom: 24px;
+}
+
+/* Keep the category-budget section directly below the shareholder panel. */
+.shareholders-section + .budget-section {
+  margin-top: 32px;
+}
+
+@media (max-width: 700px) {
+  .shareholders-section {
+    margin-top: 48px;
+    margin-bottom: 24px;
+  }
+
+  .shareholders-section + .budget-section {
+    margin-top: 24px;
+  }
+
+  .shareholders-section .shareholder-heading h2 {
+    font-size: 28px;
+  }
+}
