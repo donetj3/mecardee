@@ -1,5 +1,7 @@
 "use client";
 
+// MECARDEE_AUTO_COMPLETE_WORK_V1
+
 // MECARDEE_PAID_BY_PARTNER_CONTRIBUTIONS_V1
 
 // MECARDEE_CLEAR_NET_POSITION_V1
@@ -1115,7 +1117,7 @@ export default function Home() {
       p_owner: creditSourceName,
       p_work_date: workDraft.workDate,
       p_deadline: isCreditEntry ? workDraft.workDate : workDraft.deadline,
-      p_is_completed: isCreditEntry ? true : Boolean(workDraft.isCompleted),
+      p_is_completed: true,
       p_entry_type: isCreditEntry ? "Credit" : "Expense",
       p_amount: Number(workDraft.amount || 0),
       p_credit_shareholder_id: isCreditEntry && workDraft.creditShareholderId
@@ -2850,9 +2852,7 @@ export default function Home() {
                   {activeCategories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
                 </select>
               </label>
-              <label>Responsible person
-                <input value={workDraft.owner} onChange={(event) => setWorkDraft({ ...workDraft, owner: event.target.value })} placeholder="Owner / contractor" />
-              </label>
+
               <label>Paid by
                 <select
                   required
@@ -2882,10 +2882,7 @@ export default function Home() {
                   onChange={(event) => setWorkDraft({ ...workDraft, amount: Number(event.target.value || 0) })}
                 />
               </label>
-              <label className="checkbox-field work-complete-field">
-                <input type="checkbox" checked={workDraft.isCompleted} onChange={(event) => setWorkDraft({ ...workDraft, isCompleted: event.target.checked })} />
-                Work completed
-              </label>
+
               <label className="full-field">Notes
                 <textarea value={workDraft.notes} onChange={(event) => setWorkDraft({ ...workDraft, notes: event.target.value })} placeholder="Details for the work card and report" />
               </label>
