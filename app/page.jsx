@@ -1,5 +1,7 @@
 "use client";
 
+// MECARDEE_TRANSACTION_AMOUNT_SEARCH_V1
+
 // MECARDEE_REPOSITION_SHAREHOLDERS_BUDGET_V1
 
 // MECARDEE_HIDE_WORKS_COMPLETED_CARD_V2
@@ -725,8 +727,42 @@ export default function Home() {
         }
       }
       if (search) {
-        const haystack = `${transaction.description} ${transaction.notes} ${categoryById[transaction.categoryId]?.name || ""} ${shareholderById[transaction.shareholderId]?.name || ""} ${shareholderById[transaction.paidById]?.name || ""}`.toLowerCase();
-        if (!haystack.includes(search)) return false;
+        const amount = Number(transaction.amount || 0);
+        const signedAmount = transaction.type === "Credit" ? amount : -amount;
+
+        const amountTerms = [
+          String(amount),
+          formatPlainMoney(amount),
+          formatMoney(amount),
+          String(signedAmount),
+          `${signedAmount >= 0 ? "+" : ""}${signedAmount}`,
+          `${transaction.type === "Credit" ? "+" : "-"}${formatPlainMoney(amount)}`,
+          `${transaction.type === "Credit" ? "+" : "-"}${formatMoney(amount)}`
+        ].join(" ");
+
+        const searchableText = [
+          transaction.description,
+          transaction.notes,
+          transaction.type,
+          transaction.date,
+          transaction.date?.slice(0, 7),
+          categoryById[transaction.categoryId]?.name,
+          shareholderById[transaction.shareholderId]?.name,
+          shareholderById[transaction.paidBy]?.name,
+          transaction.paidByName,
+          amountTerms
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        const compactSearch = search.replace(/[₹,\s]/g, "");
+        const compactSearchableText = searchableText.replace(/[₹,\s]/g, "");
+        const matchesCompactValue =
+          compactSearch.length > 0 &&
+          compactSearchableText.includes(compactSearch);
+
+        if (!searchableText.includes(search) && !matchesCompactValue) return false;
       }
       return true;
     });
