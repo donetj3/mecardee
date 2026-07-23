@@ -1,5 +1,7 @@
 "use client";
 
+// MECARDEE_SHARE_BUDGET_CIRCLE_V1
+
 // MECARDEE_TRANSACTION_AMOUNT_SEARCH_V1
 
 // MECARDEE_REPOSITION_SHAREHOLDERS_BUDGET_V1
@@ -631,6 +633,52 @@ export default function Home() {
 
   const totalCategoryBudget = activeCategories.reduce((sum, category) => sum + category.budget, 0);
   const totalShareAmount = partnerContributionReport.totalContribution;
+
+  const shareBudgetCircle = (() => {
+    const colors = ["#0b6b58", "#d7ff4f", "#66d5c5"];
+    let cursor = 0;
+    const gradientParts = [];
+
+    const rows = partnerShareholders.map((shareholder, index) => {
+      const contribution = Number(
+        partnerContributionById[shareholder.id]?.totalContribution || 0
+      );
+      const percentage = totalCategoryBudget > 0
+        ? (contribution / totalCategoryBudget) * 100
+        : 0;
+
+      const availableRing = Math.max(100 - cursor, 0);
+      const visiblePercentage = Math.min(
+        Math.max(percentage, 0),
+        availableRing
+      );
+      const color = colors[index % colors.length];
+
+      if (visiblePercentage > 0) {
+        gradientParts.push(
+          `${color} ${cursor}% ${cursor + visiblePercentage}%`
+        );
+        cursor += visiblePercentage;
+      }
+
+      return {
+        id: shareholder.id,
+        name: shareholder.name,
+        percentage,
+        color
+      };
+    });
+
+    if (cursor < 100) {
+      gradientParts.push(`#e8efeb ${cursor}% 100%`);
+    }
+
+    return {
+      rows,
+      gradient: `conic-gradient(${gradientParts.join(", ")})`
+    };
+  })();
+
   const budgetRemaining = totalCategoryBudget - report.totalExpenses;
   const overallCategoryCompletion = activeCategories.length
     ? Math.round(activeCategories.reduce((sum, category) => sum + category.completion, 0) / activeCategories.length)
@@ -1877,6 +1925,7 @@ export default function Home() {
           <small>Calculated from recorded cash credits and direct expenses paid.</small>
         </div>
 
+        <div className="shareholder-overview-layout">
         <div className="shareholder-grid">
           {partnerShareholders.map((shareholder, index) => (
             <article className="shareholder-card" key={shareholder.id}>
@@ -1889,6 +1938,33 @@ export default function Home() {
               </div>
             </article>
           ))}
+        </div>
+
+          <article className="share-budget-circle-panel">
+            <div
+              className="share-budget-circle"
+              style={{ background: shareBudgetCircle.gradient }}
+              aria-label="Each partner contribution as a percentage of the total category budget"
+            >
+              <div className="share-budget-circle-center">
+                <small>Share of total budget</small>
+
+                <div className="share-budget-circle-values">
+                  {shareBudgetCircle.rows.map((row) => (
+                    <div className="share-budget-circle-row" key={row.id}>
+                      <span>
+                        <i style={{ background: row.color }} />
+                        {row.name}
+                      </span>
+                      <strong>
+                        {row.percentage.toFixed(row.percentage >= 100 ? 0 : 1)}%
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </article>
         </div>
 
         <div className="partner-contribution-report">

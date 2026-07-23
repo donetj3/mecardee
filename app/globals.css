@@ -3568,3 +3568,126 @@ textarea { min-height: 88px; resize: vertical; }
     font-size: 28px;
   }
 }
+
+/* MECARDEE_SHARE_BUDGET_CIRCLE_V1 */
+.shareholder-overview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 258px;
+  align-items: stretch;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.shareholder-overview-layout .shareholder-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+
+.shareholder-overview-layout .shareholder-card {
+  min-height: 138px;
+  padding: 18px 16px;
+}
+
+.share-budget-circle-panel {
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  overflow: hidden;
+}
+
+.share-budget-circle {
+  width: 226px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  padding: 13px;
+  border-radius: 50%;
+  box-shadow: 0 16px 34px rgba(8, 40, 34, .11);
+}
+
+.share-budget-circle-center {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  align-content: center;
+  gap: 11px;
+  padding: 22px 21px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: inset 0 0 0 1px rgba(8, 40, 34, .06);
+}
+
+.share-budget-circle-center > small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .55px;
+  line-height: 1.3;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.share-budget-circle-values {
+  display: grid;
+  gap: 7px;
+}
+
+.share-budget-circle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+}
+
+.share-budget-circle-row span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.share-budget-circle-row span i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.share-budget-circle-row strong {
+  flex: 0 0 auto;
+  color: var(--deep);
+  font-family: "Manrope", sans-serif;
+  font-size: 13px;
+  letter-spacing: -.25px;
+}
+
+@media (max-width: 1120px) {
+  .shareholder-overview-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .share-budget-circle-panel {
+    min-height: 260px;
+  }
+}
+
+@media (max-width: 760px) {
+  .shareholder-overview-layout .shareholder-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .shareholder-overview-layout .shareholder-card {
+    min-height: 0;
+  }
+
+  .share-budget-circle {
+    width: 214px;
+  }
+}
