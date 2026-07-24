@@ -1,5 +1,7 @@
 "use client";
 
+// MECARDEE_TOP_SYNC_BUTTON_V1
+
 // MECARDEE_SHARE_BUDGET_CIRCLE_V1
 
 // MECARDEE_TRANSACTION_AMOUNT_SEARCH_V1
@@ -1801,6 +1803,16 @@ export default function Home() {
         </a>
 
         <div className="top-actions">
+            <button
+              className="sync-button"
+              type="button"
+              onClick={() => window.location.reload()}
+              title="Refresh and sync latest data"
+              aria-label="Refresh and sync latest data"
+            >
+              <span className="sync-button-icon" aria-hidden="true">{"\u21BB"}</span>
+              <span className="sync-button-label">Sync</span>
+            </button>
           <span className={`sync-pill ${isSyncing ? "syncing" : ""}`}><i />{isSyncing ? "Saving" : "Live"}</span>
           <button className="notification-button" type="button" onClick={() => setShowAlerts((value) => !value)} aria-label="Open alerts">
             <span>♢</span>

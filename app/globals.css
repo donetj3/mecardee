@@ -1466,7 +1466,7 @@ textarea { min-height: 88px; resize: vertical; }
 }
 
 /* Export PDF, Log out and Add task */
-.top-actions > button:not(.notification-button):not(.settings-button) {
+.top-actions > button:not(.notification-button):not(.settings-button):not(.sync-button) {
   width: 112px !important;
   min-width: 112px !important;
   padding: 0 12px !important;
@@ -1511,7 +1511,7 @@ textarea { min-height: 88px; resize: vertical; }
     min-height: 40px !important;
   }
 
-  .top-actions > button:not(.notification-button):not(.settings-button) {
+  .top-actions > button:not(.notification-button):not(.settings-button):not(.sync-button) {
     width: 96px !important;
     min-width: 96px !important;
     padding: 0 8px !important;
@@ -1537,7 +1537,7 @@ textarea { min-height: 88px; resize: vertical; }
     display: none !important;
   }
 
-  .top-actions > button:not(.notification-button):not(.settings-button) {
+  .top-actions > button:not(.notification-button):not(.settings-button):not(.sync-button) {
     width: auto !important;
     min-width: 40px !important;
   }
@@ -3689,5 +3689,63 @@ textarea { min-height: 88px; resize: vertical; }
 
   .share-budget-circle {
     width: 214px;
+  }
+}
+
+/* MECARDEE_TOP_SYNC_BUTTON_V1 */
+.top-actions .sync-button {
+  width: 78px !important;
+  min-width: 78px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px !important;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .08);
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform .16s ease, background .16s ease, border-color .16s ease;
+}
+
+.top-actions .sync-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(215, 255, 79, .55);
+  background: rgba(255, 255, 255, .14);
+}
+
+.top-actions .sync-button:active {
+  transform: translateY(0);
+}
+
+.top-actions .sync-button-icon {
+  display: inline-block;
+  font-size: 18px;
+  line-height: 1;
+}
+
+@media (max-width: 760px) {
+  .top-actions .sync-button {
+    height: 40px !important;
+    min-height: 40px !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .top-actions .sync-button {
+    width: 40px !important;
+    min-width: 40px !important;
+    padding: 0 !important;
+  }
+
+  .top-actions .sync-button-label {
+    display: none;
   }
 }
