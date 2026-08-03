@@ -1865,29 +1865,8 @@ export default function Home() {
           </aside>
         )}
       </header>
-      <section className="hero category-hero" id="top">
-        <div className="hero-copy">
-          <span className="location-pill">{data.project.location}</span>
-          <p className="eyebrow light">CATEGORY & FINANCE CONTROL</p>
-          <h1>Every rupee and<br />every work item.</h1>
-          <p className="hero-subtitle">
-            Track category budgets, shareholder contributions, daily work and the complete financial register in one shared dashboard.
-          </p>
-          <div className="hero-actions">
-            {isAdmin && <button className="light-button" type="button" onClick={openNewWork}>Add today's work</button>}
-            {isAdmin && <button className="credit-action-button" type="button" onClick={openNewCredit}>Add credit</button>}
-            <button className="ghost-button" type="button" onClick={() => document.getElementById("transactions")?.scrollIntoView({ behavior: "smooth" })}>
-              View transaction register
-            </button>
-          </div>
-          {!isAdmin && <div className="view-only-banner">View-only account - You can filter reports and change your password.</div>}
-        </div>
-
-        <aside className="hero-completion-tile" aria-label="Project completion">
-          <CompletionDonut value={overallCategoryCompletion} size={126} />
-        </aside>
-
-        <article className="hero-today-card hero-today-card-large" aria-label="Today's work">
+      <section className="hero category-hero today-only-hero" id="top">
+        <article className="hero-today-card today-only-card" aria-label="Today's work">
           <div className="hero-today-heading">
             <div>
               <span className="eyebrow">Daily work register</span>
@@ -1903,9 +1882,15 @@ export default function Home() {
           </div>
 
           <div className="hero-work-filter">
-            <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value)} aria-label="Filter today's works by category">
+            <select
+              value={activeCategory}
+              onChange={(event) => setActiveCategory(event.target.value)}
+              aria-label="Filter today's works by category"
+            >
               <option value="all">All categories</option>
-              {activeCategories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
+              {activeCategories.map((category) => (
+                <option value={category.id} key={category.id}>{category.name}</option>
+              ))}
             </select>
             <span>{todayWorks.length} today | {openWorks.length} open</span>
           </div>
