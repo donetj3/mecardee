@@ -1866,6 +1866,18 @@ export default function Home() {
         )}
       </header>
       <section className="hero category-hero today-only-hero" id="top">
+        <div className="today-only-actions">
+          {isAdmin && <button className="light-button" type="button" onClick={openNewWork}>Add today's work</button>}
+          {isAdmin && <button className="credit-action-button" type="button" onClick={openNewCredit}>Add credit</button>}
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => document.getElementById("transactions")?.scrollIntoView({ behavior: "smooth" })}
+          >
+            View transaction register
+          </button>
+        </div>
+
         <article className="hero-today-card today-only-card" aria-label="Today's work">
           <div className="hero-today-heading">
             <div>

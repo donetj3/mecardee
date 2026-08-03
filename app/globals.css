@@ -3961,3 +3961,60 @@ textarea { min-height: 88px; resize: vertical; }
   }
 }
 /* END MECARDEE_TODAY_ONLY_HERO_V4 */
+
+/* MECARDEE_RESTORE_HERO_BUTTONS_V5 */
+.today-only-actions {
+  position: relative;
+  z-index: 2;
+  width: min(100%, 1180px);
+  margin: 0 auto 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.today-only-actions .light-button,
+.today-only-actions .credit-action-button,
+.today-only-actions .ghost-button {
+  min-width: 0;
+  min-height: 58px;
+  font-size: 15px;
+  font-weight: 800;
+  border-radius: 16px;
+}
+
+.today-only-actions .ghost-button {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+@media (max-width: 700px) {
+  .today-only-actions {
+    margin-bottom: 14px;
+    gap: 10px;
+  }
+
+  .today-only-actions .light-button,
+  .today-only-actions .credit-action-button {
+    min-height: 60px;
+    padding: 12px 10px;
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .today-only-actions .ghost-button {
+    min-height: 54px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 380px) {
+  .today-only-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .today-only-actions .ghost-button {
+    grid-column: auto;
+  }
+}
+/* END MECARDEE_RESTORE_HERO_BUTTONS_V5 */
