@@ -4215,11 +4215,13 @@ textarea { min-height: 88px; resize: vertical; }
   }
 
   .app-shell .topbar .top-actions > button.secondary-button.logout-button::after {
-    content: "Out" !important;
+    content: "Log\A Out" !important;
     display: block !important;
-    font-size: 9px !important;
+    white-space: pre-line !important;
+    text-align: center !important;
+    font-size: 8px !important;
     font-weight: 800 !important;
-    line-height: 1 !important;
+    line-height: .95 !important;
   }
 }
 
