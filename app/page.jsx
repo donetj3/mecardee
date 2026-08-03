@@ -1837,7 +1837,7 @@ export default function Home() {
             </svg>
           </button>
           <button className="secondary-button logout-button" type="button" onClick={logout}>Log out</button>
-          {isAdmin && <button className="primary-button" type="button" onClick={openNewWork}>＋ Add work</button>}
+          {isAdmin && <button className="primary-button" type="button" onClick={openNewWork}>+ Add work</button>}
         </div>
 
         {showAlerts && (
@@ -1865,36 +1865,62 @@ export default function Home() {
           </aside>
         )}
       </header>
-
       <section className="hero category-hero" id="top">
         <div className="hero-copy">
-          <span className="location-pill">⌖ {data.project.location}</span>
+          <span className="location-pill">{data.project.location}</span>
           <p className="eyebrow light">CATEGORY & FINANCE CONTROL</p>
           <h1>Every rupee and<br />every work item.</h1>
           <p className="hero-subtitle">
             Track category budgets, shareholder contributions, daily work and the complete financial register in one shared dashboard.
           </p>
           <div className="hero-actions">
-            {isAdmin && <button className="light-button" type="button" onClick={openNewWork}>Add today’s work</button>}
+            {isAdmin && <button className="light-button" type="button" onClick={openNewWork}>Add today's work</button>}
             {isAdmin && <button className="credit-action-button" type="button" onClick={openNewCredit}>Add credit</button>}
             <button className="ghost-button" type="button" onClick={() => document.getElementById("transactions")?.scrollIntoView({ behavior: "smooth" })}>
-              View transaction register ↓
+              View transaction register
             </button>
           </div>
-          {!isAdmin && <div className="view-only-banner">View-only account · You can filter reports and change your password.</div>}
+          {!isAdmin && <div className="view-only-banner">View-only account - You can filter reports and change your password.</div>}
         </div>
 
-        <div className="hero-status category-hero-status">
-          <CompletionDonut value={overallCategoryCompletion} />
-          <div className="opening-meta">
-            <span>Target opening</span>
-            <strong>{formatDate(data.project.openingDate, { day: "numeric", month: "long", year: "numeric" })}</strong>
-            <small>{openingDays} days remaining · {activeCategories.length} categories</small>
+        <aside className="hero-completion-tile" aria-label="Project completion">
+          <CompletionDonut value={overallCategoryCompletion} size={126} />
+        </aside>
+
+        <article className="hero-today-card hero-today-card-large" aria-label="Today's work">
+          <div className="hero-today-heading">
+            <div>
+              <span className="eyebrow">Daily work register</span>
+              <h2>Today's work</h2>
+              <p>{formatDate(toDateInput())}</p>
+            </div>
+
+            <div className="hero-opening-summary">
+              <span>Target opening</span>
+              <strong>{formatDate(data.project.openingDate, { day: "numeric", month: "long", year: "numeric" })}</strong>
+              <small>{openingDays} days remaining - {activeCategories.length} categories</small>
+            </div>
           </div>
-        </div>
+
+          <div className="hero-work-filter">
+            <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value)} aria-label="Filter today's works by category">
+              <option value="all">All categories</option>
+              {activeCategories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
+            </select>
+            <span>{todayWorks.length} today | {openWorks.length} open</span>
+          </div>
+
+          <div className="hero-today-list">
+            {renderWorkList(
+              todayWorks,
+              "No work added for today",
+              isAdmin ? "Use Add work to record today's site activity." : "No site activity is dated today."
+            )}
+          </div>
+        </article>
       </section>
 
-      <section className="summary-grid" aria-label="Project summary">
+<section className="summary-grid" aria-label="Project summary">
         <article className="summary-card emphasized">
           <span className="summary-icon">₹</span>
           <div><small>Total expenses</small><strong className="money-summary">{formatMoney(report.totalExpenses)}</strong></div>
@@ -2115,41 +2141,25 @@ export default function Home() {
           </div>
         </div>
       </section>
-
       <section className="section-block works-section" id="works">
         <div className="section-heading work-heading">
           <div>
-            <span className="eyebrow">Daily work register</span>
-            <h2>Today’s work</h2>
-            <p className="work-section-description">Open and completed works dated {formatDate(toDateInput())}.</p>
+            <span className="eyebrow">Pending work register</span>
+            <h2>Open works</h2>
+            <p className="work-section-description">All incomplete works, sorted from newest work date to oldest.</p>
           </div>
-          {isAdmin && <button className="primary-button" type="button" onClick={openNewWork}>＋ Add work</button>}
+          <div className="open-work-heading-actions">
+            <span className="open-work-count">{openWorks.length} pending</span>
+            {isAdmin && <button className="primary-button" type="button" onClick={openNewWork}>+ Add work</button>}
+          </div>
         </div>
 
-        <div className="work-filter-panel work-category-filter">
-          <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value)} aria-label="Filter works by category">
+        <div className="work-filter-panel work-category-filter open-work-filter">
+          <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value)} aria-label="Filter open works by category">
             <option value="all">All categories</option>
             {activeCategories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
           </select>
-          <span>{todayWorks.length} today · {openWorks.length} open</span>
-        </div>
-
-        <div className="work-list today-work-list">
-          {renderWorkList(
-            todayWorks,
-            "No work added for today",
-            isAdmin ? "Use Add work to record today’s site activity." : "No site activity is dated today.",
-            true
-          )}
-        </div>
-
-        <div className="work-subsection-heading">
-          <div>
-            <span className="eyebrow">Pending work register</span>
-            <h2>Open works</h2>
-            <p>All incomplete works, sorted from newest work date to oldest.</p>
-          </div>
-          <span className="open-work-count">{openWorks.length} pending</span>
+          <span>{openWorks.length} open</span>
         </div>
 
         <div className="work-list open-work-list">
@@ -2161,7 +2171,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="section-block financial-report-section" id="report">
+<section className="section-block financial-report-section" id="report">
         <div className="report-document">
           <div className="report-title-row">
             <div>
