@@ -1,5 +1,9 @@
 "use client";
 
+// MECARDEE_PDF_TOTAL_CONTRIBUTION_KPI_V2
+
+// MECARDEE_PDF_TOTAL_CONTRIBUTION_V1
+
 // MECARDEE_PAID_BY_COMBINED_FILTER_V6
 
 // MECARDEE_PAID_BY_COMBINED_FILTER_V5
@@ -1455,14 +1459,32 @@ export default function Home() {
           },
           {
             columns: [
-              { stack: [{ text: "MATCHING RECORDS", style: "kpiLabel" }, { text: String(filteredTransactions.length), style: "kpiValue" }] },
-              { stack: [{ text: "EXPENSES", style: "kpiLabel" }, { text: formatMoney(filteredTransactionTotals.expenses), style: "kpiValue" }] },
-              { stack: [{ text: "CREDITS", style: "kpiLabel" }, { text: formatMoney(filteredTransactionTotals.credits), style: "kpiValue" }] },
               {
                 stack: [
-                  { text: "NET EFFECT", style: "kpiLabel" },
+                  { text: "MATCHING RECORDS", style: "kpiLabel" },
+                  { text: String(filteredTransactions.length), style: "kpiValue" }
+                ]
+              },
+              {
+                stack: [
+                  { text: "EXPENSES", style: "kpiLabel" },
+                  { text: formatMoney(filteredTransactionTotals.expenses), style: "kpiValue" }
+                ]
+              },
+              {
+                stack: [
+                  { text: "CREDITS", style: "kpiLabel" },
+                  { text: formatMoney(filteredTransactionTotals.credits), style: "kpiValue" }
+                ]
+              },
+              {
+                stack: [
+                  { text: "TOTAL CONTRIBUTION", style: "kpiLabel" },
                   {
-                    text: `${filteredTransactionTotals.netEffect >= 0 ? "+" : "-"}${formatMoney(Math.abs(filteredTransactionTotals.netEffect))}`,
+                    text: formatMoney(
+                      filteredTransactionTotals.expenses +
+                      filteredTransactionTotals.credits
+                    ),
                     style: "kpiValue"
                   }
                 ]
