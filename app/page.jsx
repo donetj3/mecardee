@@ -1,5 +1,11 @@
 "use client";
 
+// MECARDEE_PAID_BY_COMBINED_FILTER_V6
+
+// MECARDEE_PAID_BY_COMBINED_FILTER_V5
+
+// MECARDEE_PAID_BY_FILTER_UI_V4
+
 // MECARDEE_TOP_SYNC_BUTTON_V1
 
 // MECARDEE_SHARE_BUDGET_CIRCLE_V1
@@ -319,6 +325,7 @@ export default function Home() {
     to: "",
     type: "all",
     category: "all",
+    paidBy: "all",
     search: ""
   });
   const [transactionSort, setTransactionSort] = useState("date-asc");
@@ -757,16 +764,24 @@ export default function Home() {
     const filtered = (data?.transactions || []).filter((transaction) => {
       if (transactionFilters.from && transaction.date < transactionFilters.from) return false;
       if (transactionFilters.to && transaction.date > transactionFilters.to) return false;
-      if (transactionFilters.type !== "all" && transaction.type !== transactionFilters.type) return false;
+
+      if (
+        transactionFilters.type !== "all" &&
+        transaction.type !== transactionFilters.type
+      ) return false;
+
       if (transactionFilters.category !== "all") {
         if (transactionFilters.category.startsWith("credit:")) {
           if (transaction.type !== "Credit") return false;
 
-          const selectedCreditSource = transactionFilters.category.slice("credit:".length);
+          const selectedCreditSource =
+            transactionFilters.category.slice("credit:".length);
 
           if (selectedCreditSource === "other") {
             if (transaction.shareholderId) return false;
-          } else if (transaction.shareholderId !== selectedCreditSource) {
+          } else if (
+            transaction.shareholderId !== selectedCreditSource
+          ) {
             return false;
           }
         } else if (
@@ -775,6 +790,65 @@ export default function Home() {
         ) {
           return false;
         }
+      }
+
+      if (transactionFilters.paidBy !== "all") {
+        const selectedPartner = shareholderById[transactionFilters.paidBy];
+        const selectedPartnerName = String(selectedPartner?.name || "")
+          .trim()
+          .toLowerCase();
+
+        const expensePaidById =
+          transaction.paidBy ||
+          transaction.paidById ||
+          transaction.paid_by ||
+          "";
+
+        const expensePaidByName = String(
+          transaction.paidByName ||
+          shareholderById[expensePaidById]?.name ||
+          expensePaidById ||
+          ""
+        )
+          .trim()
+          .toLowerCase();
+
+        const creditPartnerId =
+          transaction.shareholderId ||
+          transaction.creditShareholderId ||
+          transaction.shareholder_id ||
+          "";
+
+        const creditPartnerName = String(
+          shareholderById[creditPartnerId]?.name ||
+          transaction.shareholderName ||
+          creditPartnerId ||
+          ""
+        )
+          .trim()
+          .toLowerCase();
+
+        const expenseMatches =
+          transaction.type === "Expense" &&
+          (
+            expensePaidById === transactionFilters.paidBy ||
+            (
+              selectedPartnerName &&
+              expensePaidByName === selectedPartnerName
+            )
+          );
+
+        const creditMatches =
+          transaction.type === "Credit" &&
+          (
+            creditPartnerId === transactionFilters.paidBy ||
+            (
+              selectedPartnerName &&
+              creditPartnerName === selectedPartnerName
+            )
+          );
+
+        if (!expenseMatches && !creditMatches) return false;
       }
       if (search) {
         const amount = Number(transaction.amount || 0);
@@ -1274,7 +1348,8 @@ export default function Home() {
   }
 
   function resetTransactionFilters() {
-    setTransactionFilters({ from: "", to: "", type: "all", category: "all", search: "" });
+    setTransactionFilters({ from: "", to: "", type: "all", category: "all",
+      paidBy: "all", search: "" });
     setTransactionSort("date-asc");
   }
 
@@ -1331,6 +1406,11 @@ export default function Home() {
       }
     }
 
+    if (transactionFilters.paidBy !== "all") {
+      parts.push(
+        `Paid by / contributed by: ${shareholderById[transactionFilters.paidBy]?.name || "Selected partner"}`
+      );
+    }
     if (transactionFilters.search.trim()) {
       parts.push(`Search: ${transactionFilters.search.trim()}`);
     }
@@ -1837,7 +1917,7 @@ export default function Home() {
             </svg>
           </button>
           <button className="secondary-button logout-button" type="button" onClick={logout}>Log out</button>
-          {isAdmin && <button className="primary-button" type="button" onClick={openNewWork}>+ Add work</button>}
+          {isAdmin && <button className="primary-button topbar-add-work-button" type="button" onClick={openNewWork}>+ Add work</button>}
         </div>
 
         {showAlerts && (
@@ -2147,7 +2227,7 @@ export default function Home() {
           </div>
           <div className="open-work-heading-actions">
             <span className="open-work-count">{openWorks.length} pending</span>
-            {isAdmin && <button className="primary-button" type="button" onClick={openNewWork}>+ Add work</button>}
+            {isAdmin && <button className="primary-button topbar-add-work-button" type="button" onClick={openNewWork}>+ Add work</button>}
           </div>
         </div>
 
@@ -2361,7 +2441,25 @@ export default function Home() {
                 )}
               </select>
             </label>
-            <label className="search-filter">Search
+                        <label className="paid-by-filter-field">Paid by
+              <select
+                value={transactionFilters.paidBy}
+                onChange={(event) => {
+                  setTransactionFilters({
+                    ...transactionFilters,
+                    paidBy: event.target.value
+                  });
+                }}
+              >
+                <option value="all">All partners</option>
+                {partnerShareholders.map((shareholder) => (
+                  <option value={shareholder.id} key={shareholder.id}>
+                    {shareholder.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+<label className="search-filter">Search
               <input
                 value={transactionFilters.search}
                 onChange={(event) => setTransactionFilters({ ...transactionFilters, search: event.target.value })}
