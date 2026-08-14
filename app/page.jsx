@@ -1,5 +1,19 @@
 "use client";
 
+// MECARDEE_REGISTER_TOTAL_CREDIT_BREAKDOWN_V1
+
+// MECARDEE_UNFILTERED_CREDIT_INCLUDES_DIRECT_EXPENSES_V1
+
+// MECARDEE_REGISTER_FOUR_CREDIT_KPIS_V1
+
+// MECARDEE_DELVIN_FULL_CREDIT_FILTER_V1
+
+// MECARDEE_SIMPLE_DEBIT_CREDIT_REPORTING_V1
+
+// MECARDEE_DELVIN_CALCULATED_CREDIT_V1
+
+// MECARDEE_HIDE_FILTERED_TOTAL_AMOUNT_CARD_V2
+
 // MECARDEE_PDF_TOTAL_CONTRIBUTION_KPI_V2
 
 // MECARDEE_PDF_TOTAL_CONTRIBUTION_V1
@@ -638,8 +652,58 @@ export default function Home() {
     ),
     [partnerContributionReport.rows]
   );
+  // Overall Credit is the reconciled total partner contribution.
+  // This includes recorded cash credits, direct partner-paid expenses,
+  // and the balancing contribution already calculated by the partner report.
+  const totalCreditForReports = partnerContributionReport.totalContribution;
 
-  const categoryStats = useMemo(
+  // This is the balancing/unrecorded contribution that is intentionally
+  // outside the normal transaction filter result.
+  const unfilteredCreditForRegister = Math.max(
+    Number(totalCreditForReports || 0) - Number(report.totalCredits || 0),
+    0
+  );
+
+  function isDelvinPartner(partnerId) {
+    return String(
+      partnerContributionById[partnerId]?.name ||
+      shareholderById[partnerId]?.name ||
+      ""
+    )
+      .trim()
+      .toLowerCase() === "delvin";
+  }
+
+  function partnerCreditForFilteredView(partnerId, filteredCredits) {
+    if (
+      partnerId !== "all" &&
+      isDelvinPartner(partnerId)
+    ) {
+      return Number(
+        partnerContributionById[partnerId]?.totalContribution || 0
+      );
+    }
+
+    return Number(filteredCredits || 0);
+  }
+
+  function partnerTotalContributionForFilteredView(
+    partnerId,
+    filteredExpenses,
+    filteredCredits
+  ) {
+    if (
+      partnerId !== "all" &&
+      isDelvinPartner(partnerId)
+    ) {
+      return Number(
+        partnerContributionById[partnerId]?.totalContribution || 0
+      );
+    }
+
+    return Number(filteredExpenses || 0) + Number(filteredCredits || 0);
+  }
+const categoryStats = useMemo(
     () => Object.fromEntries(report.categories.map((category) => [category.id, category])),
     [report.categories]
   );
@@ -1385,6 +1449,9 @@ export default function Home() {
     return categoryById[transaction.categoryId]?.name || "Uncategorised";
   }
 
+  function transactionTypeLabel(transaction) {
+    return transaction.type === "Expense" ? "Debit" : "Credit";
+  }
   function transactionPaidByLabel(transaction) {
     if (transaction.type !== "Expense") return "—";
     return shareholderById[transaction.paidById]?.name || "Delvin";
@@ -1395,7 +1462,7 @@ export default function Home() {
 
     if (transactionFilters.from) parts.push(`From ${formatDate(transactionFilters.from)}`);
     if (transactionFilters.to) parts.push(`To ${formatDate(transactionFilters.to)}`);
-    if (transactionFilters.type !== "all") parts.push(`Type: ${transactionFilters.type}`);
+    if (transactionFilters.type !== "all") parts.push(`Type: ${transactionFilters.type === "Expense" ? "Debit" : "Credit"}`);
 
     if (transactionFilters.category !== "all") {
       if (transactionFilters.category.startsWith("credit:")) {
@@ -1435,7 +1502,7 @@ export default function Home() {
         index + 1,
         formatDate(transaction.date),
         transaction.date.slice(0, 7),
-        transaction.type,
+        transactionTypeLabel(transaction),
         transactionDescriptionLabel(transaction),
         transactionCategoryLabel(transaction),
         transactionPaidByLabel(transaction),
@@ -1457,40 +1524,60 @@ export default function Home() {
             style: "subtitle",
             margin: [0, 4, 0, 14]
           },
-          {
-            columns: [
-              {
-                stack: [
-                  { text: "MATCHING RECORDS", style: "kpiLabel" },
-                  { text: String(filteredTransactions.length), style: "kpiValue" }
-                ]
-              },
-              {
-                stack: [
-                  { text: "EXPENSES", style: "kpiLabel" },
-                  { text: formatMoney(filteredTransactionTotals.expenses), style: "kpiValue" }
-                ]
-              },
-              {
-                stack: [
-                  { text: "CREDITS", style: "kpiLabel" },
-                  { text: formatMoney(filteredTransactionTotals.credits), style: "kpiValue" }
-                ]
-              },
-              {
-                stack: [
-                  { text: "TOTAL CONTRIBUTION", style: "kpiLabel" },
+                    {
+            columns: transactionFilters.paidBy !== "all"
+              ? [
                   {
-                    text: formatMoney(
-                      filteredTransactionTotals.expenses +
-                      filteredTransactionTotals.credits
-                    ),
-                    style: "kpiValue"
+                    stack: [
+                      { text: "TOTAL CONTRIBUTION", style: "kpiLabel" },
+                      {
+                        text: formatMoney(
+                          partnerTotalContributionForFilteredView(
+                            transactionFilters.paidBy,
+                            filteredTransactionTotals.expenses,
+                            filteredTransactionTotals.credits
+                          )
+                        ),
+                        style: "kpiValue"
+                      }
+                    ]
+                  },
+                  {
+                    stack: [
+                      { text: "DEBIT", style: "kpiLabel" },
+                      { text: formatMoney(filteredTransactionTotals.expenses), style: "kpiValue" }
+                    ]
+                  },
+                  {
+                    stack: [
+                      { text: "CREDIT", style: "kpiLabel" },
+                      {
+                        text: formatMoney(
+                          partnerCreditForFilteredView(
+                            transactionFilters.paidBy,
+                            filteredTransactionTotals.credits
+                          )
+                        ),
+                        style: "kpiValue"
+                      }
+                    ]
                   }
                 ]
-              }
-            ],
-            columnGap: 12,
+              : [
+                  {
+                    stack: [
+                      { text: "DEBIT", style: "kpiLabel" },
+                      { text: formatMoney(filteredTransactionTotals.expenses), style: "kpiValue" }
+                    ]
+                  },
+                  {
+                    stack: [
+                      { text: "CREDIT", style: "kpiLabel" },
+                      { text: formatMoney(filteredTransactionTotals.credits), style: "kpiValue" }
+                    ]
+                  }
+                ],
+            columnGap: 14,
             margin: [0, 0, 0, 18]
           },
           {
@@ -1552,7 +1639,7 @@ export default function Home() {
           <td>${index + 1}</td>
           <td>${escapeCell(formatDate(transaction.date))}</td>
           <td>${escapeCell(transaction.date.slice(0, 7))}</td>
-          <td>${escapeCell(transaction.type)}</td>
+          <td>${escapeCell(transactionTypeLabel(transaction))}</td>
           <td>${escapeCell(transactionDescriptionLabel(transaction))}</td>
           <td>${escapeCell(transactionCategoryLabel(transaction))}</td>
           <td>${escapeCell(transactionPaidByLabel(transaction))}</td>
@@ -1583,10 +1670,15 @@ export default function Home() {
     <tr><td class="title" colspan="10">Mecardee - Filtered Transaction Register</td></tr>
     <tr><td class="subtitle" colspan="10">${escapeCell(transactionFilterSummary())}</td></tr>
     <tr>
-      <td class="summary-label">Matching records</td><td class="summary-value">${filteredTransactions.length}</td>
-      <td class="summary-label">Expenses</td><td class="summary-value">${filteredTransactionTotals.expenses}</td>
-      <td class="summary-label">Credits</td><td class="summary-value">${filteredTransactionTotals.credits}</td>
-      <td class="summary-label">Net effect</td><td class="summary-value">${filteredTransactionTotals.netEffect}</td>
+      ${transactionFilters.paidBy !== "all"
+        ? `<td class="summary-label">Total Contribution</td><td class="summary-value">${partnerTotalContributionForFilteredView(transactionFilters.paidBy, filteredTransactionTotals.expenses, filteredTransactionTotals.credits)}</td>`
+        : `<td class="summary-label">Debit</td><td class="summary-value">${filteredTransactionTotals.expenses}</td>`}
+      ${transactionFilters.paidBy !== "all"
+        ? `<td class="summary-label">Debit</td><td class="summary-value">${filteredTransactionTotals.expenses}</td>`
+        : `<td class="summary-label">Credit</td><td class="summary-value">${filteredTransactionTotals.credits}</td>`}
+      ${transactionFilters.paidBy !== "all"
+        ? `<td class="summary-label">Credit</td><td class="summary-value">${partnerCreditForFilteredView(transactionFilters.paidBy, filteredTransactionTotals.credits)}</td>`
+        : `<td></td><td></td>`}
       <td></td><td></td>
     </tr>
     <tr><td colspan="10"></td></tr>
@@ -1639,8 +1731,7 @@ export default function Home() {
       const monthlyRows = report.months.map((month) => [
         formatMonth(month.month),
         { text: formatPlainMoney(month.expenses), alignment: "right" },
-        { text: formatPlainMoney(month.credits), alignment: "right" },
-        { text: formatPlainMoney(month.net), alignment: "right" }
+        { text: formatPlainMoney(month.credits), alignment: "right" }
       ]);
 
       const partnerRows = partnerContributionReport.rows.map((row) => [
@@ -1655,7 +1746,7 @@ export default function Home() {
         index + 1,
         formatDate(transaction.date),
         transaction.date.slice(0, 7),
-        transaction.type,
+        transactionTypeLabel(transaction),
         transactionDescriptionLabel(transaction),
         transactionCategoryLabel(transaction),
         transactionPaidByLabel(transaction),
@@ -1679,12 +1770,20 @@ export default function Home() {
           },
           {
             columns: [
-              { stack: [{ text: "TOTAL EXPENSES", style: "kpiLabel" }, { text: formatMoney(report.totalExpenses), style: "kpiValue" }] },
-              { stack: [{ text: "TOTAL CREDITS", style: "kpiLabel" }, { text: formatMoney(report.totalCredits), style: "kpiValue" }] },
-              { stack: [{ text: "NET EXPENSE", style: "kpiLabel" }, { text: formatMoney(report.netExpense), style: "kpiValue" }] },
-              { stack: [{ text: "TRANSACTIONS", style: "kpiLabel" }, { text: String(report.transactionCount), style: "kpiValue" }] }
+              {
+                stack: [
+                  { text: "TOTAL DEBIT", style: "kpiLabel" },
+                  { text: formatMoney(report.totalExpenses), style: "kpiValue" }
+                ]
+              },
+              {
+                stack: [
+                  { text: "TOTAL CREDIT", style: "kpiLabel" },
+                  { text: formatMoney(totalCreditForReports), style: "kpiValue" }
+                ]
+              }
             ],
-            columnGap: 12,
+            columnGap: 16,
             margin: [0, 0, 0, 22]
           },
           {
@@ -1692,13 +1791,13 @@ export default function Home() {
               {
                 width: "*",
                 stack: [
-                  { text: "EXPENSES BY CATEGORY", style: "sectionTitle" },
+                  { text: "DEBIT BY CATEGORY", style: "sectionTitle" },
                   {
                     table: {
                       headerRows: 1,
                       widths: ["*", 88, 70, 70],
                       body: [
-                        ["Category", "Amount (₹)", "% of Expenses", "Completion"],
+                        ["Category", "Amount (₹)", "% of Debit", "Completion"],
                         ...categoryRows
                       ]
                     },
@@ -1713,9 +1812,9 @@ export default function Home() {
                   {
                     table: {
                       headerRows: 1,
-                      widths: ["*", 88, 88, 88],
+                      widths: ["*", 100, 100],
                       body: [
-                        ["Month", "Expenses (₹)", "Credits (₹)", "Net Expense (₹)"],
+                        ["Month", "Debit (₹)", "Credit (₹)"],
                         ...monthlyRows
                       ]
                     },
@@ -1730,7 +1829,7 @@ export default function Home() {
             stack: [
               { text: "PARTNER CONTRIBUTION REPORT", style: "sectionTitle", margin: [0, 18, 0, 8] },
               ...(partnerContributionReport.hasExcessRecordedCredits ? [{
-                text: "Warning: Recorded partner credits are higher than accounted business spending. Delvin's unrecorded contribution is shown as zero.",
+                text: "Warning: Recorded partner credits are higher than accounted business spending. The balancing contribution is shown as zero.",
                 color: "#a13b32",
                 fontSize: 8,
                 margin: [0, 0, 0, 8]
@@ -1740,7 +1839,7 @@ export default function Home() {
                   headerRows: 1,
                   widths: [75, 90, 90, 110, 90],
                   body: [
-                    ["Partner", "Recorded Cash Credits", "Direct Expenses Paid", "Calculated Unrecorded", "Total Contribution"],
+                    ["Partner", "Recorded Cash Credits", "Direct Expenses Paid", "Balance Contribution", "Total Contribution"],
                     ...partnerRows
                   ]
                 },
@@ -2019,41 +2118,25 @@ export default function Home() {
         </article>
       </section>
 
-<section className="summary-grid" aria-label="Project summary">
+<section className="summary-grid debit-credit-summary-grid" aria-label="Project summary">
         <article className="summary-card emphasized">
           <span className="summary-icon">₹</span>
-          <div><small>Total expenses</small><strong className="money-summary">{formatMoney(report.totalExpenses)}</strong></div>
+          <div>
+            <small>Total debit</small>
+            <strong className="money-summary">{formatMoney(report.totalExpenses)}</strong>
+          </div>
           <p>{report.transactionCount} reviewed transactions</p>
         </article>
+
         <article className="summary-card">
           <span className="summary-icon">＋</span>
-          <div><small>Total credits</small><strong className="money-summary">{formatMoney(report.totalCredits)}</strong></div>
-          <p>Recorded capital received</p>
-        </article>
-        <article className="summary-card">
-          <span className="summary-icon">{report.netExpense < 0 ? "＋" : report.netExpense > 0 ? "−" : "="}</span>
           <div>
-            <small>
-              {report.netExpense < 0
-                ? "Remaining credit"
-                : report.netExpense > 0
-                  ? "Net expense"
-                  : "Credit balance"}
-            </small>
-            <strong className="money-summary">{formatMoney(Math.abs(report.netExpense))}</strong>
+            <small>Total credit</small>
+            <strong className="money-summary">{formatMoney(totalCreditForReports)}</strong>
           </div>
-          <p>
-            {report.netExpense < 0
-              ? "Credits remaining after expenses"
-              : report.netExpense > 0
-                ? "Expenses exceed received credits"
-                : "Expenses and credits are balanced"}
-          </p>
+          <p>Total partner contribution</p>
         </article>
-        
-      </section>
-
-      <section className="section-block shareholders-section" id="shareholders">
+      </section><section className="section-block shareholders-section" id="shareholders">
         <div className="shareholder-heading">
           <div>
             <span className="eyebrow">Capital contributors</span>
@@ -2115,7 +2198,7 @@ export default function Home() {
 
           {partnerContributionReport.hasExcessRecordedCredits && (
             <div className="contribution-warning" role="alert">
-              Recorded partner credits are higher than accounted business spending. Delvin’s calculated unrecorded contribution is shown as zero.
+              Recorded partner credits are higher than accounted business spending. The balancing contribution is shown as zero.
             </div>
           )}
 
@@ -2126,7 +2209,7 @@ export default function Home() {
                   <th>Partner</th>
                   <th>Recorded Cash Credits</th>
                   <th>Direct Expenses Paid</th>
-                  <th>Calculated Unrecorded Contribution</th>
+                  <th>Balance Contribution</th>
                   <th>Total Contribution</th>
                 </tr>
               </thead>
@@ -2144,7 +2227,7 @@ export default function Home() {
             </table>
           </div>
           <p className="partner-contribution-note">
-            Delvin’s direct-expense column is informational. His total uses recorded credits plus the calculated unrecorded contribution, so the same spending is not counted twice.
+            Direct-expense payments are shown separately so the same payment is not entered again as a cash credit.
           </p>
         </div>
       </section>
@@ -2283,19 +2366,21 @@ export default function Home() {
             <button className="secondary-button report-download-button" type="button" onClick={exportPdf}>Download PDF</button>
           </div>
 
-          <div className="report-kpi-grid">
-            <article><small>TOTAL EXPENSES</small><strong>{formatMoney(report.totalExpenses)}</strong></article>
-            <article><small>TOTAL CREDITS</small><strong>{formatMoney(report.totalCredits)}</strong></article>
-            <article><small>NET EXPENSE</small><strong>{formatMoney(report.netExpense)}</strong></article>
-            <article><small>TRANSACTIONS</small><strong>{report.transactionCount}</strong></article>
-          </div>
-
-          <div className="report-table-layout">
+          <div className="report-kpi-grid debit-credit-report-kpis">
+            <article>
+              <small>TOTAL DEBIT</small>
+              <strong>{formatMoney(report.totalExpenses)}</strong>
+            </article>
+            <article>
+              <small>TOTAL CREDIT</small>
+              <strong>{formatMoney(totalCreditForReports)}</strong>
+            </article>
+          </div>          <div className="report-table-layout">
             <article className="report-table-card">
-              <h3>EXPENSES BY CATEGORY</h3>
+              <h3>DEBIT BY CATEGORY</h3>
               <div className="responsive-table">
                 <table>
-                  <thead><tr><th>Category</th><th>Amount (₹)</th><th>% of Expenses</th></tr></thead>
+                  <thead><tr><th>Category</th><th>Amount (₹)</th><th>% of Debit</th></tr></thead>
                   <tbody>
                     {report.categories.map((category) => (
                       <tr key={category.id}>
@@ -2313,14 +2398,13 @@ export default function Home() {
               <h3>MONTHLY CASH FLOW SUMMARY</h3>
               <div className="responsive-table">
                 <table>
-                  <thead><tr><th>Month</th><th>Expenses (₹)</th><th>Credits (₹)</th><th>Net Expense (₹)</th></tr></thead>
+                  <thead><tr><th>Month</th><th>Debit (₹)</th><th>Credit (₹)</th></tr></thead>
                   <tbody>
                     {report.months.map((month) => (
                       <tr key={month.month}>
                         <td>{formatMonth(month.month)}</td>
                         <td>{formatPlainMoney(month.expenses)}</td>
                         <td>{formatPlainMoney(month.credits)}</td>
-                        <td className={month.net < 0 ? "positive-net" : ""}>{formatPlainMoney(month.net)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2333,7 +2417,7 @@ export default function Home() {
             <h3>PARTNER CONTRIBUTION REPORT</h3>
             {partnerContributionReport.hasExcessRecordedCredits && (
               <div className="contribution-warning" role="alert">
-                Recorded partner credits are higher than accounted business spending. Delvin’s calculated unrecorded contribution is shown as zero.
+                Recorded partner credits are higher than accounted business spending. The balancing contribution is shown as zero.
               </div>
             )}
             <div className="responsive-table">
@@ -2343,7 +2427,7 @@ export default function Home() {
                     <th>Partner</th>
                     <th>Recorded Cash Credits</th>
                     <th>Direct Expenses Paid</th>
-                    <th>Calculated Unrecorded Contribution</th>
+                    <th>Balance Contribution</th>
                     <th>Total Contribution</th>
                   </tr>
                 </thead>
@@ -2365,7 +2449,7 @@ export default function Home() {
           <div className="report-basis">
             <strong>REPORT BASIS</strong>
             <p>
-              All corrected entries from the reviewed workbook are included. Existing expenses without a payer are assigned to Delvin. Direct expenses paid by Dantees or Dennis count as partner contributions and must not be entered again as credits. Net Expense = Total Expenses - Total Credits.
+              All corrected entries from the reviewed workbook are included. Existing expenses without a payer are assigned to Delvin. Direct expenses paid by Dantees or Dennis count as partner contributions and must not be entered again as credits. Delvin calculated credit is the remaining unrecorded contribution and is added to Total Credits for reporting without creating a duplicate transaction.
             </p>
           </div>
         </div>
@@ -2431,7 +2515,7 @@ export default function Home() {
                 })}
               >
                 <option value="all">All types</option>
-                <option value="Expense">Expense</option>
+                <option value="Expense">Debit</option>
                 <option value="Credit">Credit</option>
               </select>
             </label>
@@ -2491,27 +2575,81 @@ export default function Home() {
             <button className="secondary-button reset-filter-button" type="button" onClick={resetTransactionFilters}>Reset filters</button>
           </div>
 
-          <div className="filtered-transaction-totals" aria-live="polite">
-            <article className="filtered-total-card primary">
-              <small>Filtered total amount</small>
-              <strong>{formatMoney(filteredTransactionTotals.totalAmount)}</strong>
-              <span>{filteredTransactions.length} matching transaction{filteredTransactions.length === 1 ? "" : "s"}</span>
-            </article>
-            <article className="filtered-total-card expense">
-              <small>Filtered expenses</small>
-              <strong>{formatMoney(filteredTransactionTotals.expenses)}</strong>
-            </article>
-            <article className="filtered-total-card credit">
-              <small>Filtered credits</small>
-              <strong>{formatMoney(filteredTransactionTotals.credits)}</strong>
-            </article>
-            <article className={`filtered-total-card ${filteredTransactionTotals.netEffect >= 0 ? "credit" : "expense"}`}>
-              <small>Filtered net effect</small>
-              <strong>{filteredTransactionTotals.netEffect >= 0 ? "+" : "−"}{formatMoney(Math.abs(filteredTransactionTotals.netEffect))}</strong>
-            </article>
-          </div>
+                              <div
+            className={`filtered-transaction-totals simple-debit-credit-totals ${
+              transactionFilters.paidBy !== "all"
+                ? "partner-contribution-mode"
+                : "all-partners-credit-breakdown"
+            }`}
+            aria-live="polite"
+          >
+            {transactionFilters.paidBy !== "all" ? (
+              <>
+                <article className="filtered-total-card primary">
+                  <small>Total contribution</small>
+                  <strong>
+                    {formatMoney(
+                      partnerTotalContributionForFilteredView(
+                        transactionFilters.paidBy,
+                        filteredTransactionTotals.expenses,
+                        filteredTransactionTotals.credits
+                      )
+                    )}
+                  </strong>
+                  <span>
+                    {shareholderById[transactionFilters.paidBy]?.name || "Selected partner"}
+                  </span>
+                </article>
 
-          <div className="responsive-table transaction-table-wrap">
+                <article className="filtered-total-card expense">
+                  <small>Debit</small>
+                  <strong>{formatMoney(filteredTransactionTotals.expenses)}</strong>
+                </article>
+
+                <article className="filtered-total-card credit">
+                  <small>Credit</small>
+                  <strong>
+                    {formatMoney(
+                      partnerCreditForFilteredView(
+                        transactionFilters.paidBy,
+                        filteredTransactionTotals.credits
+                      )
+                    )}
+                  </strong>
+                </article>
+              </>
+            ) : (
+              <>
+                <article className="filtered-total-card expense main-kpi-card">
+                  <small>Debit</small>
+                  <strong>{formatMoney(filteredTransactionTotals.expenses)}</strong>
+                </article>
+
+                <article className="filtered-total-card credit main-kpi-card">
+                  <small>Credit</small>
+                  <strong>{formatMoney(totalCreditForReports)}</strong>
+                </article>
+
+                <div className="credit-breakdown-mini-grid">
+                  <article className="filtered-total-card credit mini-kpi-card">
+                    <small>Filtered credits</small>
+                    <strong>{formatMoney(filteredTransactionTotals.credits)}</strong>
+                  </article>
+
+                  <article className="filtered-total-card unfiltered-credit mini-kpi-card">
+                    <small>Unfiltered credits</small>
+                    <strong>{formatMoney(unfilteredCreditForRegister)}</strong>
+                  </article>
+                </div>
+
+                <article className="filtered-total-card primary main-kpi-card">
+                  <small>Total contribution</small>
+                  <strong>{formatMoney(totalCreditForReports)}</strong>
+                </article>
+              </>
+            )}
+          </div>
+<div className="responsive-table transaction-table-wrap">
             <table className="transaction-table">
               <thead>
                 <tr>
@@ -2571,7 +2709,11 @@ export default function Home() {
                       <td>{originalIndex + 1}</td>
                       <td>{formatDate(transaction.date)}</td>
                       <td>{transaction.date.slice(0, 7)}</td>
-                      <td><span className={`transaction-type ${transaction.type.toLowerCase()}`}>{transaction.type}</span></td>
+                      <td>
+                        <span className={`transaction-type ${transaction.type.toLowerCase()}`}>
+                          {transactionTypeLabel(transaction)}
+                        </span>
+                      </td>
                       <td>{transactionDescriptionLabel(transaction)}</td>
                       <td>{transactionCategoryLabel(transaction)}</td>
                       <td>{transactionPaidByLabel(transaction)}</td>
@@ -2829,7 +2971,11 @@ export default function Home() {
                         minute: "2-digit"
                       }).format(new Date(transaction.deletedAt)) : "—"}</td>
                       <td>{formatDate(transaction.date)}</td>
-                      <td><span className={`transaction-type ${transaction.type.toLowerCase()}`}>{transaction.type}</span></td>
+                      <td>
+                        <span className={`transaction-type ${transaction.type.toLowerCase()}`}>
+                          {transactionTypeLabel(transaction)}
+                        </span>
+                      </td>
                       <td>
                         <strong>{transaction.description}</strong>
                         {transaction.notes && <small>{transaction.notes}</small>}

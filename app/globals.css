@@ -4296,3 +4296,141 @@ textarea { min-height: 88px; resize: vertical; }
     min-width: 0;
   }
 }
+
+/* MECARDEE_HIDE_FILTERED_TOTAL_AMOUNT_CARD_V2 */
+/* After removing the first KPI, let the remaining cards use the full row. */
+.filtered-kpi-grid,
+.filtered-summary-grid,
+.transaction-summary-grid,
+.transaction-kpi-grid,
+.report-kpi-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+@media (max-width: 760px) {
+  .filtered-kpi-grid,
+  .filtered-summary-grid,
+  .transaction-summary-grid,
+  .transaction-kpi-grid,
+  .report-kpi-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* MECARDEE_SIMPLE_DEBIT_CREDIT_REPORTING_V1 */
+.debit-credit-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.debit-credit-report-kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.simple-debit-credit-totals {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.simple-debit-credit-totals.partner-contribution-mode {
+  grid-template-columns: 1.35fr 1fr 1fr !important;
+}
+
+.simple-debit-credit-totals.partner-contribution-mode .filtered-total-card.primary {
+  background: var(--deep);
+  color: white;
+}
+
+.simple-debit-credit-totals.partner-contribution-mode .filtered-total-card.primary small,
+.simple-debit-credit-totals.partner-contribution-mode .filtered-total-card.primary span {
+  color: rgba(255, 255, 255, .72);
+}
+
+@media (max-width: 760px) {
+  .debit-credit-summary-grid,
+  .debit-credit-report-kpis,
+  .simple-debit-credit-totals,
+  .simple-debit-credit-totals.partner-contribution-mode {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* MECARDEE_REGISTER_FOUR_CREDIT_KPIS_V1 */
+.simple-debit-credit-totals.all-partners-four-kpis {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+.simple-debit-credit-totals .filtered-total-card.unfiltered-credit strong {
+  color: var(--deep);
+}
+
+.simple-debit-credit-totals.all-partners-four-kpis .filtered-total-card.primary {
+  background: var(--deep);
+  color: white;
+}
+
+.simple-debit-credit-totals.all-partners-four-kpis .filtered-total-card.primary small {
+  color: rgba(255, 255, 255, .72);
+}
+
+@media (max-width: 980px) {
+  .simple-debit-credit-totals.all-partners-four-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .simple-debit-credit-totals.all-partners-four-kpis {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* MECARDEE_REGISTER_TOTAL_CREDIT_BREAKDOWN_V1 */
+.simple-debit-credit-totals.all-partners-credit-breakdown {
+  grid-template-columns: 1fr 1fr .9fr 1fr !important;
+  align-items: stretch;
+}
+
+.simple-debit-credit-totals.all-partners-credit-breakdown .main-kpi-card {
+  min-height: 116px;
+}
+
+.credit-breakdown-mini-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  min-width: 0;
+}
+
+.credit-breakdown-mini-grid .mini-kpi-card {
+  min-height: 54px;
+  padding: 10px 13px;
+  border-radius: 13px;
+}
+
+.credit-breakdown-mini-grid .mini-kpi-card small {
+  font-size: 9px;
+}
+
+.credit-breakdown-mini-grid .mini-kpi-card strong {
+  margin-top: 3px;
+  font-size: clamp(17px, 1.6vw, 21px);
+}
+
+@media (max-width: 1050px) {
+  .simple-debit-credit-totals.all-partners-credit-breakdown {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .credit-breakdown-mini-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .simple-debit-credit-totals.all-partners-credit-breakdown {
+    grid-template-columns: 1fr !important;
+  }
+
+  .credit-breakdown-mini-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
