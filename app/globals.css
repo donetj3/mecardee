@@ -398,6 +398,12 @@ footer p { color: rgba(255,255,255,.52); max-width: 520px; text-align: right; fo
 .modal-head { margin-bottom: 23px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .form-grid label { display: grid; gap: 7px; color: #50615c; font-size: 11px; font-weight: 700; }
+.payment-source-note {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.45;
+}
 .full-field { grid-column: 1 / -1; }
 input:not([type="range"]), select, textarea {
   width: 100%;
@@ -4358,10 +4364,6 @@ textarea { min-height: 88px; resize: vertical; }
   grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
 }
 
-.simple-debit-credit-totals .filtered-total-card.unfiltered-credit strong {
-  color: var(--deep);
-}
-
 .simple-debit-credit-totals.all-partners-four-kpis .filtered-total-card.primary {
   background: var(--deep);
   color: white;
@@ -4387,6 +4389,32 @@ textarea { min-height: 88px; resize: vertical; }
 .simple-debit-credit-totals.all-partners-credit-breakdown {
   grid-template-columns: 1fr 1fr .9fr 1fr !important;
   align-items: stretch;
+}
+
+/* Unified partner-funding summaries */
+.summary-grid.financial-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.report-kpi-grid.financial-report-kpis,
+.simple-debit-credit-totals.financial-summary-mode {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+@media (max-width: 1180px) {
+  .summary-grid.financial-summary-grid,
+  .report-kpi-grid.financial-report-kpis,
+  .simple-debit-credit-totals.financial-summary-mode {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .summary-grid.financial-summary-grid,
+  .report-kpi-grid.financial-report-kpis,
+  .simple-debit-credit-totals.financial-summary-mode {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 .simple-debit-credit-totals.all-partners-credit-breakdown .main-kpi-card {

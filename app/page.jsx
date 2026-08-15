@@ -2,8 +2,6 @@
 
 // MECARDEE_REGISTER_TOTAL_CREDIT_BREAKDOWN_V1
 
-// MECARDEE_UNFILTERED_CREDIT_INCLUDES_DIRECT_EXPENSES_V1
-
 // MECARDEE_REGISTER_FOUR_CREDIT_KPIS_V1
 
 // MECARDEE_DELVIN_FULL_CREDIT_FILTER_V1
@@ -52,10 +50,36 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import {
+  calculateFinancialSummary,
+  matchesPaymentSourceScope,
+  netPositionImpact,
+  resolveExpensePaymentSource
+} from "../lib/financial-summary.mjs";
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
 
 pdfMake.vfs = pdfFonts;
+
+function configureReportFonts() {
+  if (typeof window === "undefined") return;
+  const malayalamFontUrl = `${window.location.origin}/fonts/Manjari-Regular.ttf`;
+  pdfMake.addFonts({
+    Manjari: {
+      normal: malayalamFontUrl,
+      bold: malayalamFontUrl,
+      italics: malayalamFontUrl,
+      bolditalics: malayalamFontUrl
+    }
+  });
+}
+
+function pdfText(value) {
+  const text = String(value || "");
+  return /[\u0D00-\u0D7F]/u.test(text)
+    ? { text, font: "Manjari" }
+    : text;
+}
 
 // MECARDEE_CATEGORIES_REPORTS_PERMISSIONS_V1
 // MECARDEE_FILTERED_TOTALS_CREDIT_SHAREHOLDER_V1
@@ -64,9 +88,6 @@ pdfMake.vfs = pdfFonts;
 // MECARDEE_WORK_EDITOR_USABILITY_V2
 const USER_SESSION_KEY = "mecardee-user-session";
 const PAGE_SIZE = 25;
-const PARTNER_NAMES = ["Delvin", "Dantees", "Dennis"];
-
-
 const pad = (value) => String(value).padStart(2, "0");
 
 function toDateInput(value = new Date()) {
@@ -190,6 +211,7 @@ function mapWork(row) {
     amount: Number(row.amount || row.actual_cost || 0),
     creditShareholderId: row.credit_shareholder_id || "",
     paidById: row.paid_by || "",
+    paymentSource: row.payment_source || "",
     notes: row.notes || "",
     sortOrder: Number(row.sort_order || 0)
   };
@@ -207,7 +229,8 @@ function mapTransaction(row) {
     notes: row.notes || "",
     workId: row.work_id || null,
     shareholderId: row.shareholder_id || null,
-    paidById: row.paid_by || null
+    paidById: row.paid_by || null,
+    paymentSource: row.payment_source || ""
   };
 }
 
@@ -304,6 +327,7 @@ function emptyWork(categories) {
     amount: 0,
     creditShareholderId: "",
     paidById: "",
+    paymentSource: "credit_balance",
     notes: "",
     sortOrder: 0
   };
@@ -425,10 +449,17 @@ export default function Home() {
 
     setDeletedEntriesLoading(true);
 
-    const { data: result, error } = await supabase.rpc(
-      "mecardee_admin_list_deleted_transactions",
+    let { data: result, error } = await supabase.rpc(
+      "mecardee_admin_list_deleted_transactions_v2",
       { p_session_token: sessionToken }
     );
+
+    if (isMissingRpcError(error)) {
+      ({ data: result, error } = await supabase.rpc(
+        "mecardee_admin_list_deleted_transactions",
+        { p_session_token: sessionToken }
+      ));
+    }
 
     setDeletedEntriesLoading(false);
 
@@ -454,6 +485,7 @@ export default function Home() {
       shareholderName: row.shareholder_name || "",
       paidById: row.paid_by || null,
       paidByName: row.paid_by_name || "",
+      paymentSource: row.payment_source || "",
       deletedBy: row.deleted_by_username || "delvin",
       deletedAt: row.deleted_at
     })));
@@ -499,16 +531,10 @@ export default function Home() {
   );
 
   const partnerShareholders = useMemo(() => {
-    const byName = Object.fromEntries(
-      (data?.shareholders || []).map((shareholder) => [shareholder.name.trim().toLowerCase(), shareholder])
-    );
-
-    return PARTNER_NAMES
-      .map((name) => byName[name.toLowerCase()])
-      .filter(Boolean);
+    return data?.shareholders || [];
   }, [data]);
 
-  const delvinPartnerId = partnerShareholders.find(
+  const legacyCreditBalancePayerId = partnerShareholders.find(
     (shareholder) => shareholder.name.trim().toLowerCase() === "delvin"
   )?.id || "";
 
@@ -563,88 +589,13 @@ export default function Home() {
     };
   }, [activeCategories, data]);
 
-  const partnerContributionReport = useMemo(() => {
-    const transactions = data?.transactions || [];
-    const partnerByName = Object.fromEntries(
-      partnerShareholders.map((partner) => [partner.name.trim().toLowerCase(), partner])
-    );
-    const partnerIds = new Set(partnerShareholders.map((partner) => partner.id));
-
-    const recordedCashCredits = Object.fromEntries(
-      partnerShareholders.map((partner) => [partner.id, 0])
-    );
-    const directExpensesPaid = Object.fromEntries(
-      partnerShareholders.map((partner) => [partner.id, 0])
-    );
-
-    transactions.forEach((transaction) => {
-      if (
-        transaction.type === "Credit" &&
-        transaction.shareholderId &&
-        partnerIds.has(transaction.shareholderId)
-      ) {
-        recordedCashCredits[transaction.shareholderId] =
-          Number(recordedCashCredits[transaction.shareholderId] || 0) + transaction.amount;
-      }
-
-      if (
-        transaction.type === "Expense" &&
-        transaction.paidById &&
-        partnerIds.has(transaction.paidById)
-      ) {
-        directExpensesPaid[transaction.paidById] =
-          Number(directExpensesPaid[transaction.paidById] || 0) + transaction.amount;
-      }
-    });
-
-    const delvin = partnerByName.delvin;
-    const dantees = partnerByName.dantees;
-    const dennis = partnerByName.dennis;
-    const totalRecordedPartnerCredits = Object.values(recordedCashCredits)
-      .reduce((sum, amount) => sum + Number(amount || 0), 0);
-    const danteesDirect = dantees ? Number(directExpensesPaid[dantees.id] || 0) : 0;
-    const dennisDirect = dennis ? Number(directExpensesPaid[dennis.id] || 0) : 0;
-    const rawDelvinUnrecorded =
-      report.totalExpenses -
-      totalRecordedPartnerCredits -
-      danteesDirect -
-      dennisDirect;
-    const delvinUnrecorded = Math.max(0, rawDelvinUnrecorded);
-
-    const rows = PARTNER_NAMES.map((partnerName) => {
-      const partner = partnerByName[partnerName.toLowerCase()];
-      const cashCredits = partner ? Number(recordedCashCredits[partner.id] || 0) : 0;
-      const directExpenses = partner ? Number(directExpensesPaid[partner.id] || 0) : 0;
-      const unrecorded = partnerName === "Delvin" ? delvinUnrecorded : 0;
-
-      return {
-        id: partner?.id || partnerName.toLowerCase(),
-        name: partnerName,
-        recordedCashCredits: cashCredits,
-        directExpensesPaid: directExpenses,
-        calculatedUnrecordedContribution: unrecorded,
-        totalContribution: cashCredits + directExpenses + unrecorded
-      };
-    });
-
-    // Delvin's total follows the requested accounting rule and must not add
-    // his informational direct-expense column a second time.
-    const delvinRow = rows.find((row) => row.name === "Delvin");
-    if (delvinRow) {
-      delvinRow.totalContribution =
-        delvinRow.recordedCashCredits +
-        delvinRow.calculatedUnrecordedContribution;
-    }
-
-    return {
-      rows,
-      totalRecordedPartnerCredits,
-      rawDelvinUnrecorded,
-      delvinUnrecorded,
-      hasExcessRecordedCredits: rawDelvinUnrecorded < 0,
-      totalContribution: rows.reduce((sum, row) => sum + row.totalContribution, 0)
-    };
-  }, [data, partnerShareholders, report.totalExpenses]);
+  const partnerContributionReport = useMemo(
+    () => calculateFinancialSummary({
+      transactions: data?.transactions || [],
+      partners: partnerShareholders
+    }),
+    [data, partnerShareholders]
+  );
 
   const partnerContributionById = useMemo(
     () => Object.fromEntries(
@@ -652,57 +603,6 @@ export default function Home() {
     ),
     [partnerContributionReport.rows]
   );
-  // Overall Credit is the reconciled total partner contribution.
-  // This includes recorded cash credits, direct partner-paid expenses,
-  // and the balancing contribution already calculated by the partner report.
-  const totalCreditForReports = partnerContributionReport.totalContribution;
-
-  // This is the balancing/unrecorded contribution that is intentionally
-  // outside the normal transaction filter result.
-  const unfilteredCreditForRegister = Math.max(
-    Number(totalCreditForReports || 0) - Number(report.totalCredits || 0),
-    0
-  );
-
-  function isDelvinPartner(partnerId) {
-    return String(
-      partnerContributionById[partnerId]?.name ||
-      shareholderById[partnerId]?.name ||
-      ""
-    )
-      .trim()
-      .toLowerCase() === "delvin";
-  }
-
-  function partnerCreditForFilteredView(partnerId, filteredCredits) {
-    if (
-      partnerId !== "all" &&
-      isDelvinPartner(partnerId)
-    ) {
-      return Number(
-        partnerContributionById[partnerId]?.totalContribution || 0
-      );
-    }
-
-    return Number(filteredCredits || 0);
-  }
-
-  function partnerTotalContributionForFilteredView(
-    partnerId,
-    filteredExpenses,
-    filteredCredits
-  ) {
-    if (
-      partnerId !== "all" &&
-      isDelvinPartner(partnerId)
-    ) {
-      return Number(
-        partnerContributionById[partnerId]?.totalContribution || 0
-      );
-    }
-
-    return Number(filteredExpenses || 0) + Number(filteredCredits || 0);
-  }
 const categoryStats = useMemo(
     () => Object.fromEntries(report.categories.map((category) => [category.id, category])),
     [report.categories]
@@ -861,62 +761,11 @@ const categoryStats = useMemo(
       }
 
       if (transactionFilters.paidBy !== "all") {
-        const selectedPartner = shareholderById[transactionFilters.paidBy];
-        const selectedPartnerName = String(selectedPartner?.name || "")
-          .trim()
-          .toLowerCase();
-
-        const expensePaidById =
-          transaction.paidBy ||
-          transaction.paidById ||
-          transaction.paid_by ||
-          "";
-
-        const expensePaidByName = String(
-          transaction.paidByName ||
-          shareholderById[expensePaidById]?.name ||
-          expensePaidById ||
-          ""
-        )
-          .trim()
-          .toLowerCase();
-
-        const creditPartnerId =
-          transaction.shareholderId ||
-          transaction.creditShareholderId ||
-          transaction.shareholder_id ||
-          "";
-
-        const creditPartnerName = String(
-          shareholderById[creditPartnerId]?.name ||
-          transaction.shareholderName ||
-          creditPartnerId ||
-          ""
-        )
-          .trim()
-          .toLowerCase();
-
-        const expenseMatches =
-          transaction.type === "Expense" &&
-          (
-            expensePaidById === transactionFilters.paidBy ||
-            (
-              selectedPartnerName &&
-              expensePaidByName === selectedPartnerName
-            )
-          );
-
-        const creditMatches =
-          transaction.type === "Credit" &&
-          (
-            creditPartnerId === transactionFilters.paidBy ||
-            (
-              selectedPartnerName &&
-              creditPartnerName === selectedPartnerName
-            )
-          );
-
-        if (!expenseMatches && !creditMatches) return false;
+        if (!matchesPaymentSourceScope(
+          transaction,
+          transactionFilters.paidBy,
+          partnerShareholders
+        )) return false;
       }
       if (search) {
         const amount = Number(transaction.amount || 0);
@@ -940,8 +789,7 @@ const categoryStats = useMemo(
           transaction.date?.slice(0, 7),
           categoryById[transaction.categoryId]?.name,
           shareholderById[transaction.shareholderId]?.name,
-          shareholderById[transaction.paidBy]?.name,
-          transaction.paidByName,
+          transactionPaidByLabel(transaction),
           amountTerms
         ]
           .filter(Boolean)
@@ -987,8 +835,8 @@ const categoryStats = useMemo(
       } else if (sortKey === "amount") {
         comparison = Number(a.amount || 0) - Number(b.amount || 0);
       } else if (sortKey === "net") {
-        const aNet = a.type === "Credit" ? Number(a.amount || 0) : -Number(a.amount || 0);
-        const bNet = b.type === "Credit" ? Number(b.amount || 0) : -Number(b.amount || 0);
+        const aNet = netPositionImpact(a, partnerShareholders);
+        const bNet = netPositionImpact(b, partnerShareholders);
         comparison = aNet - bNet;
       } else {
         comparison = textValue(a, sortKey).localeCompare(textValue(b, sortKey), undefined, {
@@ -1003,23 +851,54 @@ const categoryStats = useMemo(
 
       return comparison * direction;
     });
-  }, [categoryById, data, shareholderById, transactionFilters, transactionSort]);
+  }, [categoryById, data, partnerShareholders, shareholderById, transactionFilters, transactionSort]);
 
-  const filteredTransactionTotals = useMemo(() => {
-    const expenses = filteredTransactions
-      .filter((transaction) => transaction.type === "Expense")
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
-    const credits = filteredTransactions
-      .filter((transaction) => transaction.type === "Credit")
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const filteredContributionReport = useMemo(
+    () => calculateFinancialSummary({
+      transactions: filteredTransactions,
+      partners: partnerShareholders
+    }),
+    [filteredTransactions, partnerShareholders]
+  );
 
+  const filteredScopeSummary = useMemo(() => {
+    if (transactionFilters.paidBy === "all") {
+      return {
+        name: "All partners",
+        manualCredit: filteredContributionReport.totalManualCredits,
+        directExpensesPaid: filteredContributionReport.totalDirectExpensesPaid,
+        creditBalanceExpenses: filteredContributionReport.totalCreditBalanceExpenses,
+        totalContribution: filteredContributionReport.totalContribution,
+        projectExpenses: filteredContributionReport.totalProjectExpenses,
+        netPosition: filteredContributionReport.netPosition
+      };
+    }
+
+    if (transactionFilters.paidBy === "credit_balance") {
+      const creditsAdded = filteredContributionReport.totalManualCredits +
+        filteredContributionReport.unassignedManualCredits;
+      return {
+        name: "Credit Balance",
+        manualCredit: creditsAdded,
+        directExpensesPaid: 0,
+        creditBalanceExpenses: filteredContributionReport.totalCreditBalanceExpenses,
+        totalContribution: creditsAdded,
+        projectExpenses: filteredContributionReport.totalCreditBalanceExpenses,
+        netPosition: filteredContributionReport.netPosition
+      };
+    }
+
+    const partner = filteredContributionReport.byPartnerId[transactionFilters.paidBy];
     return {
-      totalAmount: expenses + credits,
-      expenses,
-      credits,
-      netEffect: credits - expenses
+      name: partner?.name || "Selected partner",
+      manualCredit: partner?.manualCredit || 0,
+      directExpensesPaid: partner?.directExpensesPaid || 0,
+      creditBalanceExpenses: 0,
+      totalContribution: partner?.totalContribution || 0,
+      projectExpenses: partner?.relevantExpenses || 0,
+      netPosition: partner?.netPosition || 0
     };
-  }, [filteredTransactions]);
+  }, [filteredContributionReport, transactionFilters.paidBy]);
 
   const deletedTransactionTotals = useMemo(() => {
     const expenses = deletedTransactions
@@ -1168,17 +1047,67 @@ const categoryStats = useMemo(
     setAccountMessage(String(message || "Password changed successfully."));
   }
 
-  async function adminRpc(functionName, args, successMessage) {
+  function isMissingRpcError(error) {
+    const message = String(error?.message || "");
+    return error?.code === "PGRST202" ||
+      message.includes("Could not find the function") ||
+      message.includes("schema cache");
+  }
+
+  function legacyPaymentSourceFallback(functionName, args, paymentSource) {
+    if (
+      paymentSource === "partner" &&
+      args.p_paid_by &&
+      args.p_paid_by === legacyCreditBalancePayerId
+    ) {
+      return {
+        blockedMessage: "An explicit Delvin direct payment requires the new payment-source database migration. No entry was saved."
+      };
+    }
+
+    if (paymentSource === "credit_balance" && !legacyCreditBalancePayerId) {
+      return {
+        blockedMessage: "The Credit Balance compatibility payer could not be resolved. No entry was saved."
+      };
+    }
+
+    const { p_payment_source: _paymentSource, ...legacyArgs } = args;
+    return {
+      functionName,
+      args: {
+        ...legacyArgs,
+        p_paid_by: paymentSource === "credit_balance"
+          ? legacyCreditBalancePayerId
+          : legacyArgs.p_paid_by
+      }
+    };
+  }
+
+  async function adminRpc(functionName, args, successMessage, fallback = null) {
     if (!isAdmin) {
       notify("This account has view-only access.");
       return { ok: false, data: null };
     }
 
     setIsSyncing(true);
-    const { data: result, error } = await supabase.rpc(functionName, {
+    let { data: result, error } = await supabase.rpc(functionName, {
       p_session_token: currentUser.token,
       ...args
     });
+
+    if (error && fallback && isMissingRpcError(error)) {
+      if (fallback.blockedMessage) {
+        setIsSyncing(false);
+        notify(fallback.blockedMessage);
+        return { ok: false, data: null };
+      }
+
+      ({ data: result, error } = await supabase.rpc(fallback.functionName, {
+        p_session_token: currentUser.token,
+        ...fallback.args
+      }));
+    }
+
     setIsSyncing(false);
 
     if (error) {
@@ -1235,10 +1164,7 @@ const categoryStats = useMemo(
   }
 
   function openNewWork() {
-    setWorkDraft({
-      ...emptyWork(activeCategories),
-      paidById: delvinPartnerId
-    });
+    setWorkDraft(emptyWork(activeCategories));
     setModal("works");
   }
 
@@ -1248,13 +1174,17 @@ const categoryStats = useMemo(
   }
 
   function openEditWork(work) {
+    const paymentSource = work.entryType === "Credit"
+      ? ""
+      : resolveExpensePaymentSource(work, partnerShareholders);
     const nextDraft = {
       ...work,
       entryType: work.entryType === "Credit" ? "Credit" : "Expense",
       creditShareholderId: work.creditShareholderId || "",
+      paymentSource,
       paidById: work.entryType === "Credit"
         ? ""
-        : work.paidById || delvinPartnerId
+        : paymentSource === "partner" ? work.paidById || "" : ""
     };
     setWorkDraft(nextDraft);
     setModal(nextDraft.entryType === "Credit" ? "credit" : "works");
@@ -1262,6 +1192,10 @@ const categoryStats = useMemo(
 
   function openEditTransaction(transaction) {
     if (!isAdmin) return;
+
+    const paymentSource = transaction.type === "Expense"
+      ? resolveExpensePaymentSource(transaction, partnerShareholders)
+      : "";
 
     setDeletePassword("");
     setTransactionDraft({
@@ -1271,8 +1205,9 @@ const categoryStats = useMemo(
       description: transaction.description || "",
       categoryId: transaction.categoryId || activeCategories[0]?.id || "",
       shareholderId: transaction.shareholderId || "",
+      paymentSource,
       paidById: transaction.type === "Expense"
-        ? transaction.paidById || delvinPartnerId
+        ? paymentSource === "partner" ? transaction.paidById || "" : ""
         : "",
       amount: transaction.amount,
       notes: transaction.notes || "",
@@ -1285,7 +1220,7 @@ const categoryStats = useMemo(
     event.preventDefault();
     if (!transactionDraft) return;
 
-    const result = await adminRpc("mecardee_admin_update_transaction_v3", {
+    const transactionArgs = {
       p_id: transactionDraft.id,
       p_txn_date: transactionDraft.date,
       p_description: transactionDraft.description,
@@ -1295,12 +1230,25 @@ const categoryStats = useMemo(
       p_shareholder_id: transactionDraft.type === "Credit" && transactionDraft.shareholderId
         ? transactionDraft.shareholderId
         : null,
-      p_paid_by: transactionDraft.type === "Expense"
-        ? transactionDraft.paidById
+      p_payment_source: transactionDraft.type === "Expense"
+        ? transactionDraft.paymentSource
+        : null,
+      p_paid_by: transactionDraft.type === "Expense" && transactionDraft.paymentSource === "partner"
+        ? transactionDraft.paidById || null
         : null,
       p_amount: Number(transactionDraft.amount || 0),
       p_notes: transactionDraft.notes
-    }, `${transactionDraft.type} updated.`);
+    };
+    const result = await adminRpc(
+      "mecardee_admin_update_transaction_v4",
+      transactionArgs,
+      `${transactionDraft.type} updated.`,
+      legacyPaymentSourceFallback(
+        "mecardee_admin_update_transaction_v3",
+        transactionArgs,
+        transactionDraft.type === "Expense" ? transactionDraft.paymentSource : null
+      )
+    );
 
     if (result.ok) {
       setTransactionDraft(null);
@@ -1320,10 +1268,16 @@ const categoryStats = useMemo(
     const description = transactionDraft.description || transactionDraft.type;
     if (!window.confirm(`Move "${description}" to the Deleted Entries Report?`)) return;
 
-    const result = await adminRpc("mecardee_admin_delete_transaction", {
+    const deleteArgs = {
       p_id: transactionDraft.id,
       p_admin_password: deletePassword
-    }, "Entry moved to the Deleted Entries Report.");
+    };
+    const result = await adminRpc(
+      "mecardee_admin_delete_transaction_v2",
+      deleteArgs,
+      "Entry moved to the Deleted Entries Report.",
+      { functionName: "mecardee_admin_delete_transaction", args: deleteArgs }
+    );
 
     if (result.ok) {
       setTransactionDraft(null);
@@ -1342,7 +1296,7 @@ const categoryStats = useMemo(
       ? shareholderById[workDraft.creditShareholderId]?.name || "Other"
       : workDraft.owner;
 
-    const result = await adminRpc("mecardee_admin_save_work", {
+    const workArgs = {
       p_id: workDraft.id || null,
       p_title: workDraft.title,
       p_category_id: workDraft.categoryId,
@@ -1355,15 +1309,28 @@ const categoryStats = useMemo(
       p_credit_shareholder_id: isCreditEntry && workDraft.creditShareholderId
         ? workDraft.creditShareholderId
         : null,
-      p_paid_by: isCreditEntry ? null : workDraft.paidById,
+      p_payment_source: isCreditEntry ? null : workDraft.paymentSource,
+      p_paid_by: !isCreditEntry && workDraft.paymentSource === "partner"
+        ? workDraft.paidById || null
+        : null,
       p_notes: workDraft.notes,
       p_sort_order: Number(workDraft.sortOrder || 0)
-    }, workDraft.id
-      ? isCreditEntry ? "Credit updated." : "Work updated."
-      : isCreditEntry ? "Credit added." : "Today’s work added.");
+    };
+    const result = await adminRpc(
+      "mecardee_admin_save_work_v2",
+      workArgs,
+      workDraft.id
+        ? isCreditEntry ? "Credit updated." : "Work updated."
+        : isCreditEntry ? "Credit added." : "Today’s work added.",
+      legacyPaymentSourceFallback(
+        "mecardee_admin_save_work",
+        workArgs,
+        isCreditEntry ? null : workDraft.paymentSource
+      )
+    );
 
     if (result.ok) {
-      setWorkDraft(isCreditEntry ? emptyCredit(activeCategories) : { ...emptyWork(activeCategories), paidById: delvinPartnerId });
+      setWorkDraft(isCreditEntry ? emptyCredit(activeCategories) : emptyWork(activeCategories));
     }
   }
 
@@ -1378,23 +1345,32 @@ const categoryStats = useMemo(
 
     if (!window.confirm(`Move "${work.title}" to the Deleted Entries Report?`)) return;
 
-    const result = await adminRpc("mecardee_admin_delete_work_secure", {
+    const deleteArgs = {
       p_id: work.id,
       p_admin_password: adminPassword
-    }, "Work moved to the Deleted Entries Report.");
+    };
+    const result = await adminRpc(
+      "mecardee_admin_delete_work_secure_v2",
+      deleteArgs,
+      "Work moved to the Deleted Entries Report.",
+      { functionName: "mecardee_admin_delete_work_secure", args: deleteArgs }
+    );
 
     if (result.ok) {
       if (workDraft?.id === work.id) {
         setWorkDraft(work.entryType === "Credit"
           ? emptyCredit(activeCategories)
-          : { ...emptyWork(activeCategories), paidById: delvinPartnerId });
+          : emptyWork(activeCategories));
       }
       await loadDeletedTransactions(currentUser.token);
     }
   }
 
   async function toggleWorkCompleted(work) {
-    await adminRpc("mecardee_admin_save_work", {
+    const paymentSource = work.entryType === "Expense"
+      ? resolveExpensePaymentSource(work, partnerShareholders)
+      : null;
+    const workArgs = {
       p_id: work.id,
       p_title: work.title,
       p_category_id: work.categoryId,
@@ -1407,12 +1383,21 @@ const categoryStats = useMemo(
       p_credit_shareholder_id: work.entryType === "Credit" && work.creditShareholderId
         ? work.creditShareholderId
         : null,
-      p_paid_by: work.entryType === "Credit"
-        ? null
-        : work.paidById || delvinPartnerId,
+      p_payment_source: paymentSource,
+      p_paid_by: paymentSource === "partner" ? work.paidById || null : null,
       p_notes: work.notes,
       p_sort_order: work.sortOrder
-    }, work.isCompleted ? "Work reopened." : "Work marked complete.");
+    };
+    await adminRpc(
+      "mecardee_admin_save_work_v2",
+      workArgs,
+      work.isCompleted ? "Work reopened." : "Work marked complete.",
+      legacyPaymentSourceFallback(
+        "mecardee_admin_save_work",
+        workArgs,
+        paymentSource
+      )
+    );
   }
 
   function resetTransactionFilters() {
@@ -1444,17 +1429,22 @@ const categoryStats = useMemo(
 
   function transactionCategoryLabel(transaction) {
     if (transaction.type === "Credit") {
-      return `Credit - ${shareholderById[transaction.shareholderId]?.name || "Unassigned"}`;
+      return `Manual Credit - ${shareholderById[transaction.shareholderId]?.name || "Unassigned"}`;
     }
     return categoryById[transaction.categoryId]?.name || "Uncategorised";
   }
 
   function transactionTypeLabel(transaction) {
-    return transaction.type === "Expense" ? "Debit" : "Credit";
+    return transaction.type === "Expense" ? "Project Expense" : "Manual Credit";
   }
   function transactionPaidByLabel(transaction) {
-    if (transaction.type !== "Expense") return "—";
-    return shareholderById[transaction.paidById]?.name || "Delvin";
+    if (transaction.type === "Credit") {
+      return shareholderById[transaction.shareholderId]?.name || "Unassigned";
+    }
+    if (resolveExpensePaymentSource(transaction, partnerShareholders) === "credit_balance") {
+      return "Credit Balance";
+    }
+    return shareholderById[transaction.paidById]?.name || "Unassigned";
   }
 
   function transactionFilterSummary() {
@@ -1462,7 +1452,7 @@ const categoryStats = useMemo(
 
     if (transactionFilters.from) parts.push(`From ${formatDate(transactionFilters.from)}`);
     if (transactionFilters.to) parts.push(`To ${formatDate(transactionFilters.to)}`);
-    if (transactionFilters.type !== "all") parts.push(`Type: ${transactionFilters.type === "Expense" ? "Debit" : "Credit"}`);
+    if (transactionFilters.type !== "all") parts.push(`Type: ${transactionFilters.type === "Expense" ? "Project Expense" : "Manual Credit"}`);
 
     if (transactionFilters.category !== "all") {
       if (transactionFilters.category.startsWith("credit:")) {
@@ -1471,7 +1461,7 @@ const categoryStats = useMemo(
           ? "Other"
           : shareholderById[selectedCreditSource]?.name || "Selected source";
 
-        parts.push(`Credit source: ${sourceName}`);
+        parts.push(`Manual credit from: ${sourceName}`);
       } else {
         parts.push(`Category: ${categoryById[transactionFilters.category]?.name || "Selected category"}`);
       }
@@ -1479,14 +1469,16 @@ const categoryStats = useMemo(
 
     if (transactionFilters.paidBy !== "all") {
       parts.push(
-        `Paid by / contributed by: ${shareholderById[transactionFilters.paidBy]?.name || "Selected partner"}`
+        `Payment source / partner: ${transactionFilters.paidBy === "credit_balance"
+          ? "Credit Balance"
+          : shareholderById[transactionFilters.paidBy]?.name || "Selected partner"}`
       );
     }
     if (transactionFilters.search.trim()) {
       parts.push(`Search: ${transactionFilters.search.trim()}`);
     }
 
-    return parts.length ? parts.join(" | ") : "All transactions";
+    return parts.length ? parts.join(" | ") : "Lifetime - all transactions";
   }
 
   function exportFilteredTransactionsPdf() {
@@ -1498,17 +1490,73 @@ const categoryStats = useMemo(
     setIsExporting(true);
 
     try {
+      const summaryColumns = transactionFilters.paidBy === "credit_balance"
+        ? [
+            [
+              { text: "CREDITS ADDED TO BALANCE", style: "kpiLabel" },
+              { text: formatMoney(filteredScopeSummary.manualCredit), style: "kpiValue" }
+            ],
+            [
+              { text: "EXPENSES PAID FROM BALANCE", style: "kpiLabel" },
+              { text: formatMoney(filteredScopeSummary.creditBalanceExpenses), style: "kpiValue" }
+            ],
+            [
+              { text: "REMAINING CREDIT BALANCE", style: "kpiLabel" },
+              { text: formatMoney(filteredScopeSummary.netPosition), style: "kpiValue" }
+            ]
+          ]
+        : transactionFilters.paidBy !== "all"
+          ? [
+              [
+                { text: "MANUAL CREDIT", style: "kpiLabel" },
+                { text: formatMoney(filteredScopeSummary.manualCredit), style: "kpiValue" }
+              ],
+              [
+                { text: "DIRECT EXPENSES PAID", style: "kpiLabel" },
+                { text: formatMoney(filteredScopeSummary.directExpensesPaid), style: "kpiValue" }
+              ],
+              [
+                { text: "TOTAL CONTRIBUTION", style: "kpiLabel" },
+                { text: formatMoney(filteredScopeSummary.totalContribution), style: "kpiValue" }
+              ]
+            ]
+          : [
+            [
+              { text: "MANUAL CREDIT", style: "kpiLabel" },
+              { text: formatMoney(filteredScopeSummary.manualCredit), style: "kpiValue" }
+            ],
+            [
+              { text: "DIRECT EXPENSES PAID", style: "kpiLabel" },
+              { text: formatMoney(filteredScopeSummary.directExpensesPaid), style: "kpiValue" }
+            ],
+            [
+              { text: "EXPENSES FROM CREDIT BALANCE", style: "kpiLabel" },
+              { text: formatMoney(filteredScopeSummary.creditBalanceExpenses), style: "kpiValue" }
+            ],
+            [
+              { text: "TOTAL CONTRIBUTION", style: "kpiLabel" },
+              { text: formatMoney(filteredScopeSummary.totalContribution), style: "kpiValue" }
+            ],
+            [
+              { text: "PROJECT EXPENSES", style: "kpiLabel" },
+              { text: formatMoney(filteredScopeSummary.projectExpenses), style: "kpiValue" }
+            ],
+            [
+              { text: "NET POSITION", style: "kpiLabel" },
+              { text: formatMoney(filteredScopeSummary.netPosition), style: "kpiValue" }
+            ]
+          ];
       const rows = filteredTransactions.map((transaction, index) => [
         index + 1,
         formatDate(transaction.date),
         transaction.date.slice(0, 7),
         transactionTypeLabel(transaction),
-        transactionDescriptionLabel(transaction),
-        transactionCategoryLabel(transaction),
+        pdfText(transactionDescriptionLabel(transaction)),
+        pdfText(transactionCategoryLabel(transaction)),
         transactionPaidByLabel(transaction),
         { text: formatPlainMoney(transaction.amount), alignment: "right" },
         {
-          text: `${transaction.type === "Credit" ? "+" : "-"}${formatPlainMoney(transaction.amount)}`,
+          text: formatPlainMoney(netPositionImpact(transaction, partnerShareholders)),
           alignment: "right"
         }
       ]);
@@ -1520,63 +1568,12 @@ const categoryStats = useMemo(
         content: [
           { text: "MECARDEE - FILTERED TRANSACTION REGISTER", style: "title" },
           {
-            text: transactionFilterSummary(),
+            text: `${transactionFilterSummary()} | Summary values use only the transactions listed below.`,
             style: "subtitle",
             margin: [0, 4, 0, 14]
           },
-                    {
-            columns: transactionFilters.paidBy !== "all"
-              ? [
-                  {
-                    stack: [
-                      { text: "TOTAL CONTRIBUTION", style: "kpiLabel" },
-                      {
-                        text: formatMoney(
-                          partnerTotalContributionForFilteredView(
-                            transactionFilters.paidBy,
-                            filteredTransactionTotals.expenses,
-                            filteredTransactionTotals.credits
-                          )
-                        ),
-                        style: "kpiValue"
-                      }
-                    ]
-                  },
-                  {
-                    stack: [
-                      { text: "DEBIT", style: "kpiLabel" },
-                      { text: formatMoney(filteredTransactionTotals.expenses), style: "kpiValue" }
-                    ]
-                  },
-                  {
-                    stack: [
-                      { text: "CREDIT", style: "kpiLabel" },
-                      {
-                        text: formatMoney(
-                          partnerCreditForFilteredView(
-                            transactionFilters.paidBy,
-                            filteredTransactionTotals.credits
-                          )
-                        ),
-                        style: "kpiValue"
-                      }
-                    ]
-                  }
-                ]
-              : [
-                  {
-                    stack: [
-                      { text: "DEBIT", style: "kpiLabel" },
-                      { text: formatMoney(filteredTransactionTotals.expenses), style: "kpiValue" }
-                    ]
-                  },
-                  {
-                    stack: [
-                      { text: "CREDIT", style: "kpiLabel" },
-                      { text: formatMoney(filteredTransactionTotals.credits), style: "kpiValue" }
-                    ]
-                  }
-                ],
+          {
+            columns: summaryColumns,
             columnGap: 14,
             margin: [0, 0, 0, 18]
           },
@@ -1585,7 +1582,7 @@ const categoryStats = useMemo(
               headerRows: 1,
               widths: [25, 56, 44, 40, 120, 90, 55, 58, 62],
               body: [
-                ["Sl.", "Date", "Month", "Type", "Description", "Category", "Paid by", "Amount (₹)", "Net Effect (₹)"],
+                ["Sl.", "Date", "Month", "Type", "Description", "Category", "Partner", "Amount (₹)", "Net Position Impact (₹)"],
                 ...rows
               ]
             },
@@ -1597,7 +1594,7 @@ const categoryStats = useMemo(
           title: { fontSize: 18, bold: true, color: "#071a17" },
           subtitle: { fontSize: 8, color: "#64736f" },
           kpiLabel: { fontSize: 8, bold: true, color: "#64736f" },
-          kpiValue: { fontSize: 16, bold: true, color: "#10201d", margin: [0, 3, 0, 0] }
+          kpiValue: { fontSize: 13, bold: true, color: "#10201d", margin: [0, 3, 0, 0] }
         },
         defaultStyle: { font: "Roboto", fontSize: 8, color: "#10201d" },
         footer(currentPage, pageCount) {
@@ -1611,6 +1608,7 @@ const categoryStats = useMemo(
         }
       };
 
+      configureReportFonts();
       pdfMake.createPdf(doc).download(`mecardee-filtered-transactions-${toDateInput()}.pdf`);
       notify("Filtered transaction PDF downloaded.");
     } catch (error) {
@@ -1644,7 +1642,7 @@ const categoryStats = useMemo(
           <td>${escapeCell(transactionCategoryLabel(transaction))}</td>
           <td>${escapeCell(transactionPaidByLabel(transaction))}</td>
           <td class="number">${transaction.amount}</td>
-          <td class="number">${transaction.type === "Credit" ? transaction.amount : -transaction.amount}</td>
+          <td class="number">${netPositionImpact(transaction, partnerShareholders)}</td>
           <td>${escapeCell(transaction.notes)}</td>
         </tr>
       `).join("");
@@ -1668,19 +1666,32 @@ const categoryStats = useMemo(
 <body>
   <table>
     <tr><td class="title" colspan="10">Mecardee - Filtered Transaction Register</td></tr>
-    <tr><td class="subtitle" colspan="10">${escapeCell(transactionFilterSummary())}</td></tr>
+    <tr><td class="subtitle" colspan="10">${escapeCell(transactionFilterSummary())} | Summary values use only the listed transactions.</td></tr>
+    ${transactionFilters.paidBy === "credit_balance" ? `
     <tr>
-      ${transactionFilters.paidBy !== "all"
-        ? `<td class="summary-label">Total Contribution</td><td class="summary-value">${partnerTotalContributionForFilteredView(transactionFilters.paidBy, filteredTransactionTotals.expenses, filteredTransactionTotals.credits)}</td>`
-        : `<td class="summary-label">Debit</td><td class="summary-value">${filteredTransactionTotals.expenses}</td>`}
-      ${transactionFilters.paidBy !== "all"
-        ? `<td class="summary-label">Debit</td><td class="summary-value">${filteredTransactionTotals.expenses}</td>`
-        : `<td class="summary-label">Credit</td><td class="summary-value">${filteredTransactionTotals.credits}</td>`}
-      ${transactionFilters.paidBy !== "all"
-        ? `<td class="summary-label">Credit</td><td class="summary-value">${partnerCreditForFilteredView(transactionFilters.paidBy, filteredTransactionTotals.credits)}</td>`
-        : `<td></td><td></td>`}
+      <td class="summary-label">Credits Added to Balance</td><td class="summary-value">${filteredScopeSummary.manualCredit}</td>
+      <td class="summary-label">Expenses Paid from Balance</td><td class="summary-value">${filteredScopeSummary.creditBalanceExpenses}</td>
+      <td class="summary-label">Remaining Credit Balance</td><td class="summary-value">${filteredScopeSummary.netPosition}</td>
+      <td></td><td></td><td></td><td></td>
+    </tr>` : transactionFilters.paidBy !== "all" ? `
+    <tr>
+      <td class="summary-label">Manual Credit</td><td class="summary-value">${filteredScopeSummary.manualCredit}</td>
+      <td class="summary-label">Direct Expenses Paid</td><td class="summary-value">${filteredScopeSummary.directExpensesPaid}</td>
+      <td class="summary-label">Total Contribution</td><td class="summary-value">${filteredScopeSummary.totalContribution}</td>
+      <td></td><td></td><td></td><td></td>
+    </tr>` : `
+    <tr>
+      <td class="summary-label">Manual Credit</td><td class="summary-value">${filteredScopeSummary.manualCredit}</td>
+      <td class="summary-label">Direct Expenses Paid</td><td class="summary-value">${filteredScopeSummary.directExpensesPaid}</td>
+      <td class="summary-label">Expenses from Credit Balance</td><td class="summary-value">${filteredScopeSummary.creditBalanceExpenses}</td>
+      <td class="summary-label">Total Contribution</td><td class="summary-value">${filteredScopeSummary.totalContribution}</td>
       <td></td><td></td>
     </tr>
+    <tr>
+      <td class="summary-label">Project Expenses</td><td class="summary-value">${filteredScopeSummary.projectExpenses}</td>
+      <td class="summary-label">Net Position</td><td class="summary-value">${filteredScopeSummary.netPosition}</td>
+      <td></td><td></td><td></td><td></td><td></td><td></td>
+    </tr>`}
     <tr><td colspan="10"></td></tr>
     <tr>
       <th>Sl. No.</th>
@@ -1689,9 +1700,9 @@ const categoryStats = useMemo(
       <th>Type</th>
       <th>Description</th>
       <th>Category</th>
-      <th>Paid by</th>
+      <th>Partner</th>
       <th>Amount (₹)</th>
-      <th>Net Effect (₹)</th>
+      <th>Net Position Impact (₹)</th>
       <th>Notes</th>
     </tr>
     ${transactionRows}
@@ -1736,9 +1747,8 @@ const categoryStats = useMemo(
 
       const partnerRows = partnerContributionReport.rows.map((row) => [
         row.name,
-        { text: formatPlainMoney(row.recordedCashCredits), alignment: "right" },
+        { text: formatPlainMoney(row.manualCredit), alignment: "right" },
         { text: formatPlainMoney(row.directExpensesPaid), alignment: "right" },
-        { text: formatPlainMoney(row.calculatedUnrecordedContribution), alignment: "right" },
         { text: formatPlainMoney(row.totalContribution), alignment: "right" }
       ]);
 
@@ -1747,12 +1757,12 @@ const categoryStats = useMemo(
         formatDate(transaction.date),
         transaction.date.slice(0, 7),
         transactionTypeLabel(transaction),
-        transactionDescriptionLabel(transaction),
-        transactionCategoryLabel(transaction),
+        pdfText(transactionDescriptionLabel(transaction)),
+        pdfText(transactionCategoryLabel(transaction)),
         transactionPaidByLabel(transaction),
         { text: formatPlainMoney(transaction.amount), alignment: "right" },
         {
-          text: `${transaction.type === "Credit" ? "" : "-"}${formatPlainMoney(transaction.amount)}`,
+          text: formatPlainMoney(netPositionImpact(transaction, partnerShareholders)),
           alignment: "right"
         }
       ]);
@@ -1770,18 +1780,30 @@ const categoryStats = useMemo(
           },
           {
             columns: [
-              {
-                stack: [
-                  { text: "TOTAL DEBIT", style: "kpiLabel" },
-                  { text: formatMoney(report.totalExpenses), style: "kpiValue" }
-                ]
-              },
-              {
-                stack: [
-                  { text: "TOTAL CREDIT", style: "kpiLabel" },
-                  { text: formatMoney(totalCreditForReports), style: "kpiValue" }
-                ]
-              }
+              [
+                { text: "MANUAL CREDITS", style: "kpiLabel" },
+                { text: formatMoney(partnerContributionReport.totalManualCredits), style: "kpiValue" }
+              ],
+              [
+                { text: "DIRECT EXPENSES PAID", style: "kpiLabel" },
+                { text: formatMoney(partnerContributionReport.totalDirectExpensesPaid), style: "kpiValue" }
+              ],
+              [
+                { text: "EXPENSES FROM CREDIT BALANCE", style: "kpiLabel" },
+                { text: formatMoney(partnerContributionReport.totalCreditBalanceExpenses), style: "kpiValue" }
+              ],
+              [
+                { text: "TOTAL CONTRIBUTIONS", style: "kpiLabel" },
+                { text: formatMoney(partnerContributionReport.totalContribution), style: "kpiValue" }
+              ],
+              [
+                { text: "PROJECT EXPENSES", style: "kpiLabel" },
+                { text: formatMoney(partnerContributionReport.totalProjectExpenses), style: "kpiValue" }
+              ],
+              [
+                { text: "NET POSITION", style: "kpiLabel" },
+                { text: formatMoney(partnerContributionReport.netPosition), style: "kpiValue" }
+              ]
             ],
             columnGap: 16,
             margin: [0, 0, 0, 22]
@@ -1791,13 +1813,13 @@ const categoryStats = useMemo(
               {
                 width: "*",
                 stack: [
-                  { text: "DEBIT BY CATEGORY", style: "sectionTitle" },
+                  { text: "PROJECT EXPENSES BY CATEGORY", style: "sectionTitle" },
                   {
                     table: {
                       headerRows: 1,
                       widths: ["*", 88, 70, 70],
                       body: [
-                        ["Category", "Amount (₹)", "% of Debit", "Completion"],
+                        ["Category", "Amount (₹)", "% of Expenses", "Completion"],
                         ...categoryRows
                       ]
                     },
@@ -1808,13 +1830,13 @@ const categoryStats = useMemo(
               {
                 width: "*",
                 stack: [
-                  { text: "MONTHLY CASH FLOW SUMMARY", style: "sectionTitle" },
+                  { text: "MONTHLY TRANSACTION SUMMARY", style: "sectionTitle" },
                   {
                     table: {
                       headerRows: 1,
                       widths: ["*", 100, 100],
                       body: [
-                        ["Month", "Debit (₹)", "Credit (₹)"],
+                        ["Month", "Project Expenses (₹)", "Manual Credits (₹)"],
                         ...monthlyRows
                       ]
                     },
@@ -1828,18 +1850,12 @@ const categoryStats = useMemo(
           {
             stack: [
               { text: "PARTNER CONTRIBUTION REPORT", style: "sectionTitle", margin: [0, 18, 0, 8] },
-              ...(partnerContributionReport.hasExcessRecordedCredits ? [{
-                text: "Warning: Recorded partner credits are higher than accounted business spending. The balancing contribution is shown as zero.",
-                color: "#a13b32",
-                fontSize: 8,
-                margin: [0, 0, 0, 8]
-              }] : []),
               {
                 table: {
                   headerRows: 1,
-                  widths: [75, 90, 90, 110, 90],
+                  widths: [110, 130, 140, 140],
                   body: [
-                    ["Partner", "Recorded Cash Credits", "Direct Expenses Paid", "Balance Contribution", "Total Contribution"],
+                    ["Partner", "Manual Credit", "Direct Expenses Paid", "Total Contribution"],
                     ...partnerRows
                   ]
                 },
@@ -1849,11 +1865,16 @@ const categoryStats = useMemo(
           },
           { text: "TRANSACTION REGISTER", style: "sectionTitle", pageBreak: "before" },
           {
+            text: "Basis: A direct expense is one project bill paid directly by a partner. It increases that partner's contribution, is counted once as a project expense, and does not move Credit Balance. Historical Delvin-default expenses appear as Credit Balance.",
+            style: "basis",
+            margin: [0, 0, 0, 8]
+          },
+          {
             table: {
               headerRows: 1,
               widths: [24, 52, 42, 38, 112, 82, 48, 56, 60],
               body: [
-                ["Sl.", "Date", "Month", "Type", "Description", "Category", "Paid by", "Amount (₹)", "Net Effect (₹)"],
+                ["Sl.", "Date", "Month", "Type", "Description", "Category", "Partner", "Amount (₹)", "Net Position Impact (₹)"],
                 ...transactionRows
               ]
             },
@@ -1865,8 +1886,9 @@ const categoryStats = useMemo(
           title: { fontSize: 19, bold: true, color: "#071a17" },
           subtitle: { fontSize: 8, color: "#64736f" },
           kpiLabel: { fontSize: 8, bold: true, color: "#64736f" },
-          kpiValue: { fontSize: 19, bold: true, color: "#10201d", margin: [0, 4, 0, 0] },
-          sectionTitle: { fontSize: 11, bold: true, color: "#071a17", margin: [0, 0, 0, 8] }
+          kpiValue: { fontSize: 14, bold: true, color: "#10201d", margin: [0, 4, 0, 0] },
+          sectionTitle: { fontSize: 11, bold: true, color: "#071a17", margin: [0, 0, 0, 8] },
+          basis: { fontSize: 7, color: "#52645f", lineHeight: 1.1 }
         },
         defaultStyle: { font: "Roboto", fontSize: 8, color: "#10201d" },
         footer(currentPage, pageCount) {
@@ -1880,6 +1902,7 @@ const categoryStats = useMemo(
         }
       };
 
+      configureReportFonts();
       pdfMake.createPdf(doc).download(`mecardee-financial-report-${toDateInput()}.pdf`);
       notify("Financial report downloaded.");
     } catch (error) {
@@ -1974,7 +1997,7 @@ const categoryStats = useMemo(
               <span>▣ Work date: {formatDate(work.workDate)}</span>
               <span>◷ Deadline: {formatDate(work.deadline)}</span>
               <span>👤 {work.owner || "Not assigned"}</span>
-              <span>Paid by: {shareholderById[work.paidById]?.name || "Delvin"}</span>
+              <span>Paid by: {resolveExpensePaymentSource(work, partnerShareholders) === "credit_balance" ? "Credit Balance" : shareholderById[work.paidById]?.name || "Unassigned"}</span>
               <span>₹ {formatMoney(work.amount)}</span>
             </div>
           </div>
@@ -2118,12 +2141,12 @@ const categoryStats = useMemo(
         </article>
       </section>
 
-<section className="summary-grid debit-credit-summary-grid" aria-label="Project summary">
+<section className="summary-grid financial-summary-grid" aria-label="Project financial summary">
         <article className="summary-card emphasized">
           <span className="summary-icon">₹</span>
           <div>
-            <small>Total debit</small>
-            <strong className="money-summary">{formatMoney(report.totalExpenses)}</strong>
+            <small>Project expenses / debits</small>
+            <strong className="money-summary">{formatMoney(partnerContributionReport.totalProjectExpenses)}</strong>
           </div>
           <p>{report.transactionCount} reviewed transactions</p>
         </article>
@@ -2131,10 +2154,46 @@ const categoryStats = useMemo(
         <article className="summary-card">
           <span className="summary-icon">＋</span>
           <div>
-            <small>Total credit</small>
-            <strong className="money-summary">{formatMoney(totalCreditForReports)}</strong>
+            <small>Manual credits</small>
+            <strong className="money-summary">{formatMoney(partnerContributionReport.totalManualCredits)}</strong>
           </div>
-          <p>Total partner contribution</p>
+          <p>Recorded partner funding</p>
+        </article>
+
+        <article className="summary-card">
+          <span className="summary-icon">↗</span>
+          <div>
+            <small>Direct expenses paid</small>
+            <strong className="money-summary">{formatMoney(partnerContributionReport.totalDirectExpensesPaid)}</strong>
+          </div>
+          <p>Bills paid directly by partners; no Credit Balance movement</p>
+        </article>
+
+        <article className="summary-card">
+          <span className="summary-icon">↘</span>
+          <div>
+            <small>Expenses from Credit Balance</small>
+            <strong className="money-summary">{formatMoney(partnerContributionReport.totalCreditBalanceExpenses)}</strong>
+          </div>
+          <p>Paid from recorded manual credits</p>
+        </article>
+
+        <article className="summary-card">
+          <span className="summary-icon">Σ</span>
+          <div>
+            <small>Total contributions</small>
+            <strong className="money-summary">{formatMoney(partnerContributionReport.totalContribution)}</strong>
+          </div>
+          <p>Manual credits plus bills paid directly by partners</p>
+        </article>
+
+        <article className="summary-card">
+          <span className="summary-icon">＝</span>
+          <div>
+            <small>Current balance / net position</small>
+            <strong className="money-summary">{formatMoney(partnerContributionReport.netPosition)}</strong>
+          </div>
+          <p>Manual credits less expenses paid from Credit Balance</p>
         </article>
       </section><section className="section-block shareholders-section" id="shareholders">
         <div className="shareholder-heading">
@@ -2142,7 +2201,7 @@ const categoryStats = useMemo(
             <span className="eyebrow">Capital contributors</span>
             <h2>Shareholders</h2>
           </div>
-          <small>Calculated from recorded cash credits and direct expenses paid.</small>
+          <small>Calculated from manual credits and expenses explicitly paid by a partner.</small>
         </div>
 
         <div className="shareholder-overview-layout">
@@ -2193,12 +2252,12 @@ const categoryStats = useMemo(
               <span className="eyebrow">Contribution reconciliation</span>
               <h3>Partner contribution report</h3>
             </div>
-            <small>Direct expenses are not entered again as credits.</small>
+            <small>Historical Delvin-default expenses are treated as Credit Balance.</small>
           </div>
 
-          {partnerContributionReport.hasExcessRecordedCredits && (
+          {(partnerContributionReport.unassignedManualCredits > 0 || partnerContributionReport.unassignedDirectExpenses > 0) && (
             <div className="contribution-warning" role="alert">
-              Recorded partner credits are higher than accounted business spending. The balancing contribution is shown as zero.
+              Legacy unassigned transactions remain in project totals but are not attributed to any partner.
             </div>
           )}
 
@@ -2207,9 +2266,8 @@ const categoryStats = useMemo(
               <thead>
                 <tr>
                   <th>Partner</th>
-                  <th>Recorded Cash Credits</th>
+                  <th>Manual Credit</th>
                   <th>Direct Expenses Paid</th>
-                  <th>Balance Contribution</th>
                   <th>Total Contribution</th>
                 </tr>
               </thead>
@@ -2217,9 +2275,8 @@ const categoryStats = useMemo(
                 {partnerContributionReport.rows.map((row) => (
                   <tr key={row.id}>
                     <td><strong>{row.name}</strong></td>
-                    <td>{formatMoney(row.recordedCashCredits)}</td>
+                    <td>{formatMoney(row.manualCredit)}</td>
                     <td>{formatMoney(row.directExpensesPaid)}</td>
-                    <td>{formatMoney(row.calculatedUnrecordedContribution)}</td>
                     <td><strong>{formatMoney(row.totalContribution)}</strong></td>
                   </tr>
                 ))}
@@ -2227,7 +2284,7 @@ const categoryStats = useMemo(
             </table>
           </div>
           <p className="partner-contribution-note">
-            Direct-expense payments are shown separately so the same payment is not entered again as a cash credit.
+            Only an explicitly selected partner creates a direct contribution. Credit Balance expenses reduce the project&apos;s net position.
           </p>
         </div>
       </section>
@@ -2366,21 +2423,39 @@ const categoryStats = useMemo(
             <button className="secondary-button report-download-button" type="button" onClick={exportPdf}>Download PDF</button>
           </div>
 
-          <div className="report-kpi-grid debit-credit-report-kpis">
+          <div className="report-kpi-grid financial-report-kpis">
             <article>
-              <small>TOTAL DEBIT</small>
-              <strong>{formatMoney(report.totalExpenses)}</strong>
+              <small>MANUAL CREDITS</small>
+              <strong>{formatMoney(partnerContributionReport.totalManualCredits)}</strong>
             </article>
             <article>
-              <small>TOTAL CREDIT</small>
-              <strong>{formatMoney(totalCreditForReports)}</strong>
+              <small>DIRECT EXPENSES PAID</small>
+              <strong>{formatMoney(partnerContributionReport.totalDirectExpensesPaid)}</strong>
             </article>
-          </div>          <div className="report-table-layout">
+            <article>
+              <small>EXPENSES FROM CREDIT BALANCE</small>
+              <strong>{formatMoney(partnerContributionReport.totalCreditBalanceExpenses)}</strong>
+            </article>
+            <article>
+              <small>TOTAL CONTRIBUTIONS</small>
+              <strong>{formatMoney(partnerContributionReport.totalContribution)}</strong>
+            </article>
+            <article>
+              <small>PROJECT EXPENSES / DEBITS</small>
+              <strong>{formatMoney(partnerContributionReport.totalProjectExpenses)}</strong>
+            </article>
+            <article>
+              <small>CURRENT BALANCE / NET POSITION</small>
+              <strong>{formatMoney(partnerContributionReport.netPosition)}</strong>
+            </article>
+          </div>
+
+          <div className="report-table-layout">
             <article className="report-table-card">
-              <h3>DEBIT BY CATEGORY</h3>
+              <h3>PROJECT EXPENSES BY CATEGORY</h3>
               <div className="responsive-table">
                 <table>
-                  <thead><tr><th>Category</th><th>Amount (₹)</th><th>% of Debit</th></tr></thead>
+                  <thead><tr><th>Category</th><th>Amount (₹)</th><th>% of Expenses</th></tr></thead>
                   <tbody>
                     {report.categories.map((category) => (
                       <tr key={category.id}>
@@ -2395,10 +2470,10 @@ const categoryStats = useMemo(
             </article>
 
             <article className="report-table-card">
-              <h3>MONTHLY CASH FLOW SUMMARY</h3>
+              <h3>MONTHLY TRANSACTION SUMMARY</h3>
               <div className="responsive-table">
                 <table>
-                  <thead><tr><th>Month</th><th>Debit (₹)</th><th>Credit (₹)</th></tr></thead>
+                  <thead><tr><th>Month</th><th>Project Expenses (₹)</th><th>Manual Credits (₹)</th></tr></thead>
                   <tbody>
                     {report.months.map((month) => (
                       <tr key={month.month}>
@@ -2415,9 +2490,9 @@ const categoryStats = useMemo(
 
           <article className="report-table-card partner-report-card">
             <h3>PARTNER CONTRIBUTION REPORT</h3>
-            {partnerContributionReport.hasExcessRecordedCredits && (
+            {(partnerContributionReport.unassignedManualCredits > 0 || partnerContributionReport.unassignedDirectExpenses > 0) && (
               <div className="contribution-warning" role="alert">
-                Recorded partner credits are higher than accounted business spending. The balancing contribution is shown as zero.
+                Legacy unassigned transactions remain in project totals but are not attributed to any partner.
               </div>
             )}
             <div className="responsive-table">
@@ -2425,9 +2500,8 @@ const categoryStats = useMemo(
                 <thead>
                   <tr>
                     <th>Partner</th>
-                    <th>Recorded Cash Credits</th>
+                    <th>Manual Credit</th>
                     <th>Direct Expenses Paid</th>
-                    <th>Balance Contribution</th>
                     <th>Total Contribution</th>
                   </tr>
                 </thead>
@@ -2435,9 +2509,8 @@ const categoryStats = useMemo(
                   {partnerContributionReport.rows.map((row) => (
                     <tr key={row.id}>
                       <td><strong>{row.name}</strong></td>
-                      <td>{formatPlainMoney(row.recordedCashCredits)}</td>
+                      <td>{formatPlainMoney(row.manualCredit)}</td>
                       <td>{formatPlainMoney(row.directExpensesPaid)}</td>
-                      <td>{formatPlainMoney(row.calculatedUnrecordedContribution)}</td>
                       <td><strong>{formatPlainMoney(row.totalContribution)}</strong></td>
                     </tr>
                   ))}
@@ -2449,7 +2522,7 @@ const categoryStats = useMemo(
           <div className="report-basis">
             <strong>REPORT BASIS</strong>
             <p>
-              All corrected entries from the reviewed workbook are included. Existing expenses without a payer are assigned to Delvin. Direct expenses paid by Dantees or Dennis count as partner contributions and must not be entered again as credits. Delvin calculated credit is the remaining unrecorded contribution and is added to Total Credits for reporting without creating a duplicate transaction.
+              Manual Credit comes only from recorded credit transactions. Expenses paid from Credit Balance reduce the current balance. A direct expense is one project bill paid directly by a partner: it increases that partner&apos;s contribution, is counted once in Project Expenses, and does not enter or reduce Credit Balance. Total Contribution is Manual Credit plus Direct Expenses Paid. Historical expenses stored under the former Delvin default are displayed as Credit Balance without rewriting those records. The app&apos;s existing debit records are Project Expense transactions; there is no separate withdrawal transaction type.
             </p>
           </div>
         </div>
@@ -2515,11 +2588,11 @@ const categoryStats = useMemo(
                 })}
               >
                 <option value="all">All types</option>
-                <option value="Expense">Debit</option>
-                <option value="Credit">Credit</option>
+                <option value="Expense">Project Expense</option>
+                <option value="Credit">Manual Credit</option>
               </select>
             </label>
-            <label>{transactionFilters.type === "Credit" ? "Credit received from" : "Category"}
+            <label>{transactionFilters.type === "Credit" ? "Manual credit received from" : "Category"}
               <select
                 value={transactionFilters.category}
                 onChange={(event) => setTransactionFilters({
@@ -2528,17 +2601,17 @@ const categoryStats = useMemo(
                 })}
               >
                 <option value="all">
-                  {transactionFilters.type === "Credit" ? "All credit sources" : "All categories"}
+                  {transactionFilters.type === "Credit" ? "All manual credit sources" : "All categories"}
                 </option>
 
                 {transactionFilters.type === "Credit" ? (
                   <>
                     {partnerShareholders.map((shareholder) => (
                       <option value={`credit:${shareholder.id}`} key={shareholder.id}>
-                        Credit - {shareholder.name}
+                        Manual Credit - {shareholder.name}
                       </option>
                     ))}
-                    <option value="credit:other">Credit - Unassigned (legacy)</option>
+                    <option value="credit:other">Manual Credit - Unassigned (legacy)</option>
                   </>
                 ) : (
                   activeCategories.map((category) => (
@@ -2547,7 +2620,7 @@ const categoryStats = useMemo(
                 )}
               </select>
             </label>
-                        <label className="paid-by-filter-field">Paid by
+            <label className="paid-by-filter-field">Payment source / partner
               <select
                 value={transactionFilters.paidBy}
                 onChange={(event) => {
@@ -2557,7 +2630,8 @@ const categoryStats = useMemo(
                   });
                 }}
               >
-                <option value="all">All partners</option>
+                <option value="all">All payment sources / partners</option>
+                <option value="credit_balance">Credit Balance</option>
                 {partnerShareholders.map((shareholder) => (
                   <option value={shareholder.id} key={shareholder.id}>
                     {shareholder.name}
@@ -2575,76 +2649,81 @@ const categoryStats = useMemo(
             <button className="secondary-button reset-filter-button" type="button" onClick={resetTransactionFilters}>Reset filters</button>
           </div>
 
-                              <div
-            className={`filtered-transaction-totals simple-debit-credit-totals ${
-              transactionFilters.paidBy !== "all"
-                ? "partner-contribution-mode"
-                : "all-partners-credit-breakdown"
-            }`}
+          <div
+            className="filtered-transaction-totals simple-debit-credit-totals financial-summary-mode"
             aria-live="polite"
           >
-            {transactionFilters.paidBy !== "all" ? (
+            {transactionFilters.paidBy === "credit_balance" ? (
               <>
-                <article className="filtered-total-card primary">
-                  <small>Total contribution</small>
-                  <strong>
-                    {formatMoney(
-                      partnerTotalContributionForFilteredView(
-                        transactionFilters.paidBy,
-                        filteredTransactionTotals.expenses,
-                        filteredTransactionTotals.credits
-                      )
-                    )}
-                  </strong>
-                  <span>
-                    {shareholderById[transactionFilters.paidBy]?.name || "Selected partner"}
-                  </span>
+                <article className="filtered-total-card credit">
+                  <small>Credits Added to Balance</small>
+                  <strong>{formatMoney(filteredScopeSummary.manualCredit)}</strong>
+                  <span>Recorded manual credits · filtered selection</span>
                 </article>
 
                 <article className="filtered-total-card expense">
-                  <small>Debit</small>
-                  <strong>{formatMoney(filteredTransactionTotals.expenses)}</strong>
+                  <small>Expenses Paid from Balance</small>
+                  <strong>{formatMoney(filteredScopeSummary.creditBalanceExpenses)}</strong>
+                  <span>Project bills funded from Credit Balance</span>
                 </article>
 
+                <article className="filtered-total-card primary">
+                  <small>Remaining Credit Balance</small>
+                  <strong>{formatMoney(filteredScopeSummary.netPosition)}</strong>
+                  <span>Credits added less balance-funded expenses</span>
+                </article>
+              </>
+            ) : transactionFilters.paidBy !== "all" ? (
+              <>
                 <article className="filtered-total-card credit">
-                  <small>Credit</small>
-                  <strong>
-                    {formatMoney(
-                      partnerCreditForFilteredView(
-                        transactionFilters.paidBy,
-                        filteredTransactionTotals.credits
-                      )
-                    )}
-                  </strong>
+                  <small>Manual Credit</small>
+                  <strong>{formatMoney(filteredScopeSummary.manualCredit)}</strong>
+                  <span>{filteredScopeSummary.name} · filtered selection</span>
+                </article>
+
+                <article className="filtered-total-card">
+                  <small>Direct Expenses Paid</small>
+                  <strong>{formatMoney(filteredScopeSummary.directExpensesPaid)}</strong>
+                  <span>Bills paid directly by this partner</span>
+                </article>
+
+                <article className="filtered-total-card primary">
+                  <small>Total Contribution</small>
+                  <strong>{formatMoney(filteredScopeSummary.totalContribution)}</strong>
+                  <span>Manual credit plus directly paid bills</span>
                 </article>
               </>
             ) : (
               <>
-                <article className="filtered-total-card expense main-kpi-card">
-                  <small>Debit</small>
-                  <strong>{formatMoney(filteredTransactionTotals.expenses)}</strong>
+                <article className="filtered-total-card credit">
+                  <small>Manual Credit</small>
+                  <strong>{formatMoney(filteredScopeSummary.manualCredit)}</strong>
+                  <span>{filteredScopeSummary.name} · filtered selection</span>
                 </article>
 
-                <article className="filtered-total-card credit main-kpi-card">
-                  <small>Credit</small>
-                  <strong>{formatMoney(totalCreditForReports)}</strong>
+                <article className="filtered-total-card">
+                  <small>Direct Expenses Paid</small>
+                  <strong>{formatMoney(filteredScopeSummary.directExpensesPaid)}</strong>
                 </article>
 
-                <div className="credit-breakdown-mini-grid">
-                  <article className="filtered-total-card credit mini-kpi-card">
-                    <small>Filtered credits</small>
-                    <strong>{formatMoney(filteredTransactionTotals.credits)}</strong>
-                  </article>
+                <article className="filtered-total-card expense">
+                  <small>Expenses from Credit Balance</small>
+                  <strong>{formatMoney(filteredScopeSummary.creditBalanceExpenses)}</strong>
+                </article>
 
-                  <article className="filtered-total-card unfiltered-credit mini-kpi-card">
-                    <small>Unfiltered credits</small>
-                    <strong>{formatMoney(unfilteredCreditForRegister)}</strong>
-                  </article>
-                </div>
+                <article className="filtered-total-card primary">
+                  <small>Total Contribution</small>
+                  <strong>{formatMoney(filteredScopeSummary.totalContribution)}</strong>
+                </article>
 
-                <article className="filtered-total-card primary main-kpi-card">
-                  <small>Total contribution</small>
-                  <strong>{formatMoney(totalCreditForReports)}</strong>
+                <article className="filtered-total-card expense">
+                  <small>Relevant Project Expenses / Debits</small>
+                  <strong>{formatMoney(filteredScopeSummary.projectExpenses)}</strong>
+                </article>
+
+                <article className="filtered-total-card">
+                  <small>Balance / Net Position</small>
+                  <strong>{formatMoney(filteredScopeSummary.netPosition)}</strong>
                 </article>
               </>
             )}
@@ -2685,7 +2764,7 @@ const categoryStats = useMemo(
                   </th>
                   <th>
                     <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("paidBy", "asc")}>
-                      <span>Paid by</span><b>{transactionSortIcon("paidBy")}</b>
+                      <span>Partner</span><b>{transactionSortIcon("paidBy")}</b>
                     </button>
                   </th>
                   <th>
@@ -2695,7 +2774,7 @@ const categoryStats = useMemo(
                   </th>
                   <th>
                     <button className="transaction-sort-button" type="button" onClick={() => toggleTransactionSort("net", "desc")}>
-                      <span>Net Effect (₹)</span><b>{transactionSortIcon("net")}</b>
+                      <span>Net Position Impact (₹)</span><b>{transactionSortIcon("net")}</b>
                     </button>
                   </th>
                   {isAdmin && <th className="transaction-action-heading">Edit</th>}
@@ -2704,6 +2783,7 @@ const categoryStats = useMemo(
               <tbody>
                 {pagedTransactions.map((transaction) => {
                   const originalIndex = data.transactions.findIndex((item) => item.id === transaction.id);
+                  const impact = netPositionImpact(transaction, partnerShareholders);
                   return (
                     <tr key={transaction.id}>
                       <td>{originalIndex + 1}</td>
@@ -2718,8 +2798,8 @@ const categoryStats = useMemo(
                       <td>{transactionCategoryLabel(transaction)}</td>
                       <td>{transactionPaidByLabel(transaction)}</td>
                       <td>{formatPlainMoney(transaction.amount)}</td>
-                      <td className={transaction.type === "Credit" ? "credit-effect" : "expense-effect"}>
-                        {transaction.type === "Credit" ? "+" : "-"}{formatPlainMoney(transaction.amount)}
+                      <td className={impact > 0 ? "credit-effect" : impact < 0 ? "expense-effect" : ""}>
+                        {impact > 0 ? "+" : ""}{formatPlainMoney(impact)}
                       </td>
                       {isAdmin && (
                         <td className="transaction-edit-cell">
@@ -2955,7 +3035,7 @@ const categoryStats = useMemo(
                     <th>Type</th>
                     <th>Description</th>
                     <th>Category / source</th>
-                    <th>Paid by</th>
+                    <th>Payment source</th>
                     <th>Amount (₹)</th>
                     <th>Deleted by</th>
                   </tr>
@@ -2985,7 +3065,7 @@ const categoryStats = useMemo(
                           ? `Credit - ${transaction.shareholderName || "Unassigned"}`
                           : transaction.categoryName || categoryById[transaction.categoryId]?.name || "Uncategorised"}
                       </td>
-                      <td>{transaction.type === "Expense" ? transaction.paidByName || "Delvin" : "—"}</td>
+                      <td>{transaction.type === "Expense" ? transactionPaidByLabel(transaction) : "—"}</td>
                       <td>{formatPlainMoney(transaction.amount)}</td>
                       <td>{transaction.deletedBy}</td>
                     </tr>
@@ -3062,16 +3142,20 @@ const categoryStats = useMemo(
                 <label>Paid by
                   <select
                     required
-                    value={transactionDraft.paidById}
-                    onChange={(event) => setTransactionDraft({
-                      ...transactionDraft,
-                      paidById: event.target.value
-                    })}
+                    value={transactionDraft.paymentSource === "partner" ? transactionDraft.paidById : "credit_balance"}
+                    onChange={(event) => setTransactionDraft(event.target.value === "credit_balance"
+                      ? { ...transactionDraft, paymentSource: "credit_balance", paidById: "" }
+                      : { ...transactionDraft, paymentSource: "partner", paidById: event.target.value }
+                    )}
                   >
+                    <option value="credit_balance">Credit Balance</option>
                     {partnerShareholders.map((partner) => (
                       <option value={partner.id} key={partner.id}>{partner.name}</option>
                     ))}
                   </select>
+                  <span className="payment-source-note">
+                    A partner selection means that partner paid this bill directly. It is one project expense and does not use Credit Balance.
+                  </span>
                 </label>
               </>
             ) : (
@@ -3254,13 +3338,20 @@ const categoryStats = useMemo(
               <label>Paid by
                 <select
                   required
-                  value={workDraft.paidById}
-                  onChange={(event) => setWorkDraft({ ...workDraft, paidById: event.target.value })}
+                  value={workDraft.paymentSource === "partner" ? workDraft.paidById : "credit_balance"}
+                  onChange={(event) => setWorkDraft(event.target.value === "credit_balance"
+                    ? { ...workDraft, paymentSource: "credit_balance", paidById: "" }
+                    : { ...workDraft, paymentSource: "partner", paidById: event.target.value }
+                  )}
                 >
+                  <option value="credit_balance">Credit Balance</option>
                   {partnerShareholders.map((partner) => (
                     <option value={partner.id} key={partner.id}>{partner.name}</option>
                   ))}
                 </select>
+                <span className="payment-source-note">
+                  A partner selection means that partner paid this bill directly. It is one project expense and does not use Credit Balance.
+                </span>
               </label>
               <label>Work date
                 <input type="date" required value={workDraft.workDate} onChange={(event) => setWorkDraft({ ...workDraft, workDate: event.target.value })} />
@@ -3286,7 +3377,7 @@ const categoryStats = useMemo(
               </label>
               <div className="modal-actions full-field">
                 {workDraft.id && <button className="delete-button" type="button" onClick={() => deleteWork(workDraft)}>Delete</button>}
-                <button className="secondary-button" type="button" onClick={() => setWorkDraft({ ...emptyWork(activeCategories), paidById: delvinPartnerId })}>Clear</button>
+                <button className="secondary-button" type="button" onClick={() => setWorkDraft(emptyWork(activeCategories))}>Clear</button>
                 <button className="primary-button" type="submit" disabled={isSyncing}>{workDraft.id ? "Save work" : "Add work"}</button>
               </div>
             </form>
