@@ -2968,7 +2968,7 @@ const categoryStats = useMemo(
 
       {modal === "shares" && isAdmin && (
         <Modal title="Edit shareholder shares" eyebrow="Administrator controls" onClose={() => setModal("")} wide>
-          <div className="editor-intro"><p>Update the amount shown for Delvin, Dennis and Dantees under the budget cards.</p></div>
+          <div className="editor-intro"><p>Update the amount shown for Delvin, Dennies and Dantees under the budget cards.</p></div>
           <div className="share-editor-list">
             {data.shareholders.map((shareholder) => (
               <form className="share-editor-row" onSubmit={(event) => saveShareholder(event, shareholder)} key={shareholder.id}>

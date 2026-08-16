@@ -31,12 +31,12 @@ update public.mecardee_transactions
 set shareholder_id = (
   select id
   from public.mecardee_shareholders
-  where lower(name) = 'dennis'
+  where lower(name) = 'dennies'
   limit 1
 )
 where txn_type = 'Credit'
   and shareholder_id is null
-  and lower(description) like '%dennis%';
+  and lower(description) like '%dennies%';
 
 update public.mecardee_transactions
 set shareholder_id = (

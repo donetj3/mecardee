@@ -8,7 +8,7 @@ from (
   values
     ('Delvin'::text, 1),
     ('Dantees'::text, 2),
-    ('Dennis'::text, 3)
+    ('Dennies'::text, 3)
 ) as partner(name, sort_order)
 where not exists (
   select 1
@@ -130,7 +130,7 @@ as $$
     select 1
     from public.mecardee_shareholders shareholder
     where shareholder.id = p_shareholder_id
-      and lower(trim(shareholder.name)) in ('delvin', 'dantees', 'dennis')
+      and lower(trim(shareholder.name)) in ('delvin', 'dantees', 'dennies')
   );
 $$;
 
@@ -191,11 +191,11 @@ begin
   end if;
 
   if v_entry_type = 'Expense' and not public.mecardee_is_named_partner(p_paid_by) then
-    raise exception 'Choose Delvin, Dantees or Dennis in Paid by.';
+    raise exception 'Choose Delvin, Dantees or Dennies in Paid by.';
   end if;
 
   if v_entry_type = 'Credit' and not public.mecardee_is_named_partner(p_credit_shareholder_id) then
-    raise exception 'Assign the credit to Delvin, Dantees or Dennis.';
+    raise exception 'Assign the credit to Delvin, Dantees or Dennies.';
   end if;
 
   if v_id is not null then
@@ -396,11 +396,11 @@ begin
     end if;
 
     if not public.mecardee_is_named_partner(p_paid_by) then
-      raise exception 'Choose Delvin, Dantees or Dennis in Paid by.';
+      raise exception 'Choose Delvin, Dantees or Dennies in Paid by.';
     end if;
   elsif v_transaction.txn_type = 'Credit' then
     if not public.mecardee_is_named_partner(p_shareholder_id) then
-      raise exception 'Assign the credit to Delvin, Dantees or Dennis.';
+      raise exception 'Assign the credit to Delvin, Dantees or Dennies.';
     end if;
 
     select name

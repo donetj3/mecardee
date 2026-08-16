@@ -123,7 +123,7 @@ create table if not exists public.mecardee_shareholders (
 insert into public.mecardee_shareholders (name, amount, sort_order)
 values
   ('Delvin', 0, 10),
-  ('Dennis', 592000, 20),
+  ('Dennies', 592000, 20),
   ('Dantees', 308000, 30)
 on conflict (name) do nothing;
 
@@ -136,7 +136,7 @@ values
     (3, '2025-04-01'::date, 'Expense', 'Lunch expense', 'food-refreshments', 160, 'excel-3'),
     (4, '2025-04-02'::date, 'Expense', 'Tea expense', 'food-refreshments', 177, 'excel-4'),
     (5, '2025-04-02'::date, 'Expense', 'Lunch expense', 'food-refreshments', 160, 'excel-5'),
-    (6, '2025-04-04'::date, 'Credit', 'Credit received from Dennis for lift cost', null, 300000, 'excel-6'),
+    (6, '2025-04-04'::date, 'Credit', 'Credit received from Dennies for lift cost', null, 300000, 'excel-6'),
     (7, '2025-04-07'::date, 'Expense', 'Unloading labour (Royal)', 'labour-contractor', 500, 'excel-7'),
     (8, '2025-04-07'::date, 'Credit', 'Credit received from Danees', null, 50000, 'excel-8'),
     (9, '2025-04-07'::date, 'Expense', 'Royal Metals, Paika', 'metal-roofing', 51000, 'excel-9'),
@@ -491,7 +491,7 @@ values
     (358, '2026-06-24'::date, 'Expense', 'Lunch expense', 'food-refreshments', 360, 'excel-358'),
     (359, '2026-06-24'::date, 'Expense', 'Tea expense', 'food-refreshments', 200, 'excel-359'),
     (360, '2026-06-24'::date, 'Expense', 'Pradeep mason labour', 'labour-contractor', 1300, 'excel-360'),
-    (361, '2026-06-24'::date, 'Credit', 'Credit from Dennis', null, 292000, 'excel-361'),
+    (361, '2026-06-24'::date, 'Credit', 'Credit from Dennies', null, 292000, 'excel-361'),
     (362, '2026-06-25'::date, 'Expense', 'Tea expense', 'food-refreshments', 100, 'excel-362'),
     (363, '2026-06-25'::date, 'Expense', 'Petrol', 'fuel-transport', 1000, 'excel-363'),
     (364, '2026-06-25'::date, 'Expense', 'Pradeep mason labour', 'labour-contractor', 1300, 'excel-364'),
