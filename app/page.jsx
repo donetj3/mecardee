@@ -2155,6 +2155,7 @@ const categoryStats = useMemo(
                 <div><dt>Name</dt><dd>{lastWork.title}</dd></div>
                 <div><dt>Type</dt><dd>{lastWork.entryType}</dd></div>
                 <div><dt>Date</dt><dd>{formatDate(lastWork.workDate)}</dd></div>
+                <div><dt>Amount</dt><dd>{formatMoney(lastWork.amount)}</dd></div>
                 <div className="last-work-detail"><dt>Detail</dt><dd>{lastWork.notes || "No details added."}</dd></div>
               </dl>
             ) : <p>No work entries yet.</p>}
