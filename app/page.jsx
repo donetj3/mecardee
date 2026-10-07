@@ -202,6 +202,7 @@ function mapWork(row) {
   return {
     id: row.id,
     title: row.title,
+    createdAt: row.created_at || "",
     categoryId: row.phase,
     owner: row.owner || "",
     workDate: row.work_date || row.created_at?.slice(0, 10) || toDateInput(),
@@ -710,6 +711,15 @@ const categoryStats = useMemo(
       openWorks: works.filter((work) => !work.isCompleted)
     };
   }, [activeCategory, data]);
+
+  const lastWork = useMemo(
+    () => (data?.works || [])
+      .filter((work) => work.entryType !== "Credit")
+      .filter((work) => activeCategory === "all" || work.categoryId === activeCategory)
+      .slice()
+      .sort((a, b) => String(b.createdAt || b.workDate || "").localeCompare(String(a.createdAt || a.workDate || "")))[0],
+    [activeCategory, data]
+  );
 
   const editableWorks = useMemo(
     () => (data?.works || [])
@@ -2138,6 +2148,17 @@ const categoryStats = useMemo(
               isAdmin ? "Use Add work to record today's site activity." : "No site activity is dated today."
             )}
           </div>
+          <section className="last-work-panel" aria-label="Last work">
+            <h3>Last work</h3>
+            {lastWork ? (
+              <dl className="last-work-details">
+                <div><dt>Name</dt><dd>{lastWork.title}</dd></div>
+                <div><dt>Type</dt><dd>{lastWork.entryType}</dd></div>
+                <div><dt>Date</dt><dd>{formatDate(lastWork.workDate)}</dd></div>
+                <div className="last-work-detail"><dt>Detail</dt><dd>{lastWork.notes || "No details added."}</dd></div>
+              </dl>
+            ) : <p>No work entries yet.</p>}
+          </section>
         </article>
       </section>
 
